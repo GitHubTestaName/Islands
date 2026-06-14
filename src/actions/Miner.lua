@@ -1,38 +1,26 @@
 -- src/actions/Miner.lua
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Miner = {}
 local Bot = _G.IslandsBot
 local State = Bot.State
 local LocalPlayer = Players.LocalPlayer
 
-local function IrParaAlvo(alvoPos)
-    if not State.MiningSettings.TweenToTarget then return end
-    
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+-- Controle persistente de Voo e Colisão
+local hoverBv = nil
+local noclipConn = nil
 
-    local dist = (hrp.Position - alvoPos).Magnitude
-    if dist > 15 then
-        -- CORREÇÃO: Não ancorar! Deixar solto para o servidor registrar o movimento.
-        hrp.Anchored = false
-        
-        local speed = State.MiningSettings.TweenSpeed or 20
-        local tempo = dist / speed
-        
-        local hoverPos = alvoPos + Vector3.new(0, 6, 0)
-        local hoverCFrame = CFrame.new(hoverPos)
-        
-        -- Adiciona BodyVelocity para o boneco flutuar sem a gravidade puxar ele para baixo
-        local bodyVel = Instance.new("BodyVelocity")
-        bodyVel.Velocity = Vector3.new(0, 0, 0)
-        bodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bodyVel.Parent = hrp
-
-        -- Ativa NoClip temporário para atravessar blocos e minérios
-        local noclipConnection
-        noclipConnection = RunService.Stepped:Connect(function()
+local function AtivarModoFantasma(char, hrp)
+    if not hoverBv then
+        hoverBv = Instance.new("BodyVelocity")
+        hoverBv.Name = "BotHoverVel"
+        hoverBv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        hoverBv.Velocity = Vector3.new(0, 0, 0)
+        hoverBv.Parent = hrp
+    end
+    if not noclipConn then
+        noclipConn = RunService.Stepped:Connect(function()
             if char then
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") and part.CanCollide then
@@ -41,32 +29,44 @@ local function IrParaAlvo(alvoPos)
                 end
             end
         end)
-        
-        local tween = game:GetService("TweenService"):Create(
-            hrp, 
-            TweenInfo.new(tempo, Enum.EasingStyle.Linear), 
-            {CFrame = hoverCFrame}
-        )
-        
-        if Bot.Modules.Manager then Bot.Modules.Manager:AtualizarStatus("✈️ Voando para pedra...") end
-        
-        tween:Play()
-        while tween.PlaybackState == Enum.PlaybackState.Playing and State.Minerando do
-            task.wait(0.1)
+    end
+end
+
+local function DesativarModoFantasma()
+    if hoverBv then hoverBv:Destroy(); hoverBv = nil end
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+end
+
+local function EquiparFerramenta()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    -- Se já tiver uma ferramenta equipada, mantém ela
+    if char:FindFirstChildWhichIsA("Tool") then return end
+
+    -- Tenta achar uma picareta, machado ou ferramenta genérica no inventário
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name:lower():find("pickaxe") or tool.Name:lower():find("axe") or tool.Name:lower():find("hammer")) then
+                char.Humanoid:EquipTool(tool)
+                task.wait(0.2)
+                return
+            end
         end
-        
-        if not State.Minerando then tween:Cancel() end
-        
-        -- Limpeza pós-voo
-        if noclipConnection then noclipConnection:Disconnect() end
-        if bodyVel then bodyVel:Destroy() end
-        hrp.Velocity = Vector3.new(0, 0, 0)
+        -- Se não achar especifica, pega a primeira
+        local qualquertool = bp:FindFirstChildWhichIsA("Tool")
+        if qualquertool then
+            char.Humanoid:EquipTool(qualquertool)
+            task.wait(0.2)
+        end
     end
 end
 
 function Miner:ExecutarLoop()
     local Manager = Bot.Modules.Manager
     local Scanner = State.ScannerGeral
+    local rangeSeletor = 14 -- Raio de 7 para cada lado (Alcance do player)
 
     while State.Minerando do
         if Scanner then Scanner:EscanearArea() end
@@ -79,72 +79,105 @@ function Miner:ExecutarLoop()
 
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        
-        table.sort(Scanner.ListaBlocos, function(a, b)
-            local posAtual = hrp and hrp.Position or Scanner.AncoraPart.Position
-            return (posAtual - a.Posicao).Magnitude < (posAtual - b.Posicao).Magnitude
-        end)
+        if not char or not hrp then task.wait(1) continue end
 
-        for i, dados in ipairs(Scanner.ListaBlocos) do
-            if not State.Minerando then break end
+        EquiparFerramenta()
 
-            local bloco = dados.Instancia
-            if not bloco or not bloco:IsDescendantOf(workspace) then continue end
+        if State.MiningSettings.TweenToTarget then AtivarModoFantasma(char, hrp) end
 
-            local healthObj = bloco:FindFirstChild("Health")
-            local partTarget = bloco 
-            local tentativas = 0
+        -- ALGORITMO DE CLUSTER (Smart Grid)
+        local zonas = {}
+        for _, dados in ipairs(Scanner.ListaBlocos) do
+            local pos = dados.Posicao
+            -- Agrupa num grid de 14x14
+            local cx = math.floor(pos.X / rangeSeletor) * rangeSeletor + (rangeSeletor / 2)
+            local cz = math.floor(pos.Z / rangeSeletor) * rangeSeletor + (rangeSeletor / 2)
+            local key = string.format("%.1f_%.1f", cx, cz)
             
-            local basePos = bloco:IsA("Model") and bloco:GetPivot().Position or bloco.Position
-            IrParaAlvo(basePos) 
-            
-            while bloco and bloco:IsDescendantOf(workspace) do
-                if not State.Minerando then break end
-                
-                -- Checagem de segurança (Impede mandar Hits invalidos de longe se desativar o Tween)
-                if not State.MiningSettings.TweenToTarget then
-                    local pAtual = (char and char:FindFirstChild("HumanoidRootPart")) and char.HumanoidRootPart.Position or basePos
-                    if (pAtual - basePos).Magnitude > 18 then break end
-                end
-                
-                local hpAtual = healthObj and healthObj.Value or 0
-                if healthObj and hpAtual <= 0 then 
-                    if dados.Marcador then dados.Marcador:Destroy() end
-                    break 
-                end
-                
-                tentativas = tentativas + 1
-                if Manager then
-                    Manager:AtualizarStatus(string.format("[%d/%d] %s | HP: %s | Hit: %d", i, #Scanner.ListaBlocos, dados.Nome, tostring(hpAtual), tentativas))
-                end
-
-                if tentativas > 50 then 
-                    if Manager then Manager:AtualizarStatus("Gargalo! Recalculando pedras...") end
-                    Scanner:EscanearArea() 
-                    task.wait(0.5)
-                    break 
-                end
-
-                local offsetX = math.random(-15, 15) / 100
-                local offsetZ = math.random(-15, 15) / 100
-                local hitPosition = basePos + Vector3.new(offsetX, 0, offsetZ)
-
-                local payload = {
-                    Xoeoxuqilfgenamojfjmj = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy",
-                    part = partTarget, 
-                    block = bloco,
-                    norm = hitPosition,
-                    pos = Vector3.new(0, 1, 0)
-                }
-
-                pcall(function() Manager.HitRemote:InvokeServer(payload) end)
-                task.wait(0.02)
+            if not zonas[key] then
+                -- O Y da zona será um pouco acima do bloco mais alto para o boneco pairar
+                zonas[key] = { centro = Vector3.new(cx, pos.Y + 6, cz), alvos = {} }
             end
+            table.insert(zonas[key].alvos, dados)
+        end
+
+        local listaZonas = {}
+        for _, z in pairs(zonas) do table.insert(listaZonas, z) end
+
+        -- O boneco vai de zona em zona
+        while #listaZonas > 0 and State.Minerando do
+            -- Pega a zona mais próxima do boneco
+            table.sort(listaZonas, function(a, b)
+                return (hrp.Position - a.centro).Magnitude < (hrp.Position - b.centro).Magnitude
+            end)
             
-            if dados.Marcador and dados.Marcador.Parent then dados.Marcador:Destroy() end
+            local zonaAtual = table.remove(listaZonas, 1)
+
+            -- Voa para o centro da Zona
+            if State.MiningSettings.TweenToTarget then
+                local dist = (hrp.Position - zonaAtual.centro).Magnitude
+                if dist > 3 then
+                    local speed = State.MiningSettings.TweenSpeed or 30
+                    local tempo = dist / speed
+                    local tween = TweenService:Create(hrp, TweenInfo.new(tempo, Enum.EasingStyle.Linear), {CFrame = CFrame.new(zonaAtual.centro)})
+                    if Manager then Manager:AtualizarStatus(string.format("✈️ Viajando para Zona (%d alvos)", #zonaAtual.alvos)) end
+                    tween:Play()
+                    tween.Completed:Wait()
+                else
+                    hrp.CFrame = CFrame.new(zonaAtual.centro)
+                end
+            end
+
+            -- Fica parado no centro e destroi tudo ao redor
+            for i, dados in ipairs(zonaAtual.alvos) do
+                if not State.Minerando then break end
+
+                local bloco = dados.Instancia
+                if not bloco or not bloco:IsDescendantOf(workspace) then continue end
+
+                local healthObj = bloco:FindFirstChild("Health")
+                local tentativas = 0
+                local basePos = bloco:IsA("Model") and bloco:GetPivot().Position or bloco.Position
+                
+                -- Segurança caso ele desligue o voo e esteja longe
+                if not State.MiningSettings.TweenToTarget and (hrp.Position - basePos).Magnitude > 20 then continue end
+                
+                while bloco and bloco:IsDescendantOf(workspace) do
+                    if not State.Minerando then break end
+                    
+                    local hpAtual = healthObj and healthObj.Value or 0
+                    if healthObj and hpAtual <= 0 then 
+                        if dados.Marcador then dados.Marcador:Destroy() end
+                        break 
+                    end
+                    
+                    tentativas = tentativas + 1
+                    if Manager then
+                        Manager:AtualizarStatus(string.format("Minerando [%d/%d] | HP: %s", i, #zonaAtual.alvos, tostring(hpAtual)))
+                    end
+
+                    -- Se tentar mais de 25 vezes (uns 5 segundos preso), ele pula pro próximo
+                    if tentativas > 25 then break end
+
+                    local hitPosition = basePos + Vector3.new(math.random(-10,10)/100, 0, math.random(-10,10)/100)
+                    local payload = {
+                        Xoeoxuqilfgenamojfjmj = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy",
+                        part = bloco, block = bloco, norm = hitPosition, pos = Vector3.new(0, 1, 0)
+                    }
+
+                    pcall(function() Manager.HitRemote:InvokeServer(payload) end)
+                    
+                    -- DELAY CORRIGIDO PARA EVITAR PHANTOM HITS (Respeita o cooldown do jogo)
+                    task.wait(0.2) 
+                end
+                
+                if dados.Marcador and dados.Marcador.Parent then dados.Marcador:Destroy() end
+            end
         end
         task.wait(0.2)
     end
+    
+    DesativarModoFantasma()
 end
 
 function Miner:Alternar(valor)
@@ -170,6 +203,7 @@ function Miner:Alternar(valor)
         State.Construindo = false
         task.spawn(function() Miner:ExecutarLoop() end)
     else
+        DesativarModoFantasma()
         if Manager then Manager:AtualizarStatus("Ocioso") end
     end
     return true
