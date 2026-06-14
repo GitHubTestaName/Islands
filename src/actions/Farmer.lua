@@ -66,6 +66,14 @@ end
 -- ========================================================
 -- HELPERS DE LEITURA INTELIGENTE DA FAZENDA
 -- ========================================================
+local function LimparNomeSemente(nome)
+    return tostring(nome or "")
+        :gsub("Seeds", "")
+        :gsub("seeds", "")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
+end
+
 local function NormalizarNome(nome)
     return tostring(nome or "")
         :lower()
@@ -155,7 +163,7 @@ end
 local function ResolverCulturaDesejada(Manager)
     local prioridade = State.FarmSettings.PrioritizePlant
     if prioridade and prioridade ~= "Nenhum" and prioridade ~= "None" then
-        return prioridade:gsub("Seeds", ""):gsub("seeds", ""), ObterNomeCultura(prioridade)
+        return LimparNomeSemente(prioridade), ObterNomeCultura(prioridade), true
     end
 
     local stateSementes = State.SementeSelecionada
@@ -164,13 +172,16 @@ local function ResolverCulturaDesejada(Manager)
     local sementesNoInventario = Manager:GetInventoryTools("Seed")
     for _, sementeNome in ipairs(sementesNoInventario) do
         if sementeNome ~= "Nenhum item encontrado" and sementeNome ~= "None Found" then
-            if stateSementes["All"] or stateSementes[sementeNome] then
-                return sementeNome:gsub("Seeds", ""):gsub("seeds", ""), ObterNomeCultura(sementeNome)
+            local sementeLimpa = LimparNomeSemente(sementeNome)
+            if stateSementes[sementeNome] then
+                return sementeLimpa, ObterNomeCultura(sementeNome), true
+            elseif stateSementes["All"] then
+                return sementeLimpa, nil, false
             end
         end
     end
 
-    return nil, nil
+    return nil, nil, false
 end
 
 local prioridadeAcao = {
@@ -244,8 +255,7 @@ function Farmer:AlternarAutoFazenda(valor)
             local char = LocalPlayer.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then task.wait(1) continue end
 
-            local sementeNomeReal, culturaAlvo = ResolverCulturaDesejada(Manager)
-            local somenteCulturaAlvo = culturaAlvo ~= nil
+            local sementeNomeReal, culturaAlvo, somenteCulturaAlvo = ResolverCulturaDesejada(Manager)
 
             local cacheSolos = {}
             local cachePlantas = {}
