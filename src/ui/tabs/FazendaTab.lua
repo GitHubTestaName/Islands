@@ -52,6 +52,7 @@ function FazendaTab:Construir(paginaPai)
     Componentes:CriarInputMetade("💨 Speed:", rDelay2, State.FarmSettings, "TweenSpeed", 20, zDelay)
     
     local rDelay3 = Componentes:CriarGridDupla(cDelay, zDelay)
+    Componentes:CriarCheckboxMetade("Vizu Parada", rDelay3, State.FarmSettings, "ShowStopViz", zDelay)
     Componentes:CriarCheckboxMetade("Hide Numbers", rDelay3, State.ScannerFazenda, "HideNumbers", zDelay, function()
         if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
     end)
