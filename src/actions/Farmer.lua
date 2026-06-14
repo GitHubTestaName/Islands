@@ -7,6 +7,65 @@ local State = Bot.State
 local Config = Bot.Config
 local LocalPlayer = Players.LocalPlayer
 
+-- ========================================================
+-- ✈️ MOTOR DE VOO FÍSICO EMBUTIDO (GARANTIA DE FUNCIONAMENTO)
+-- ========================================================
+local MoverConnection = nil
+local AntiGravity = nil
+
+local function PararVoo()
+    if MoverConnection then MoverConnection:Disconnect(); MoverConnection = nil end
+    if AntiGravity then AntiGravity:Destroy(); AntiGravity = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hum then hum.PlatformStand = false end
+        if hrp then hrp.Anchored = false; hrp.Velocity = Vector3.zero end
+    end
+end
+
+local function VoarParaFisico(destino)
+    PararVoo()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return end
+
+    hrp.Anchored = false
+    hum.PlatformStand = true 
+    AntiGravity = Instance.new("BodyVelocity")
+    AntiGravity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    AntiGravity.Velocity = Vector3.zero
+    AntiGravity.Parent = hrp
+
+    local chegou = false
+    local velocidade = State.FarmSettings.TweenSpeed or 25
+
+    MoverConnection = RunService.Heartbeat:Connect(function(dt)
+        if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(); chegou = true return end
+        local posAtual = hrp.Position
+        local dist = (destino - posAtual).Magnitude
+        
+        if dist <= 1.5 then chegou = true; PararVoo() return end
+        
+        local step = velocidade * dt
+        if step > dist then step = dist end
+        local dir = (destino - posAtual).Unit
+        local novaPos = posAtual + (dir * step)
+        
+        hrp.CFrame = CFrame.new(novaPos, novaPos + dir)
+        hrp.Velocity = Vector3.zero 
+        hrp.RotVelocity = Vector3.zero
+    end)
+
+    while not chegou and State.AutoFarmingCrops do task.wait(0.05) end
+    PararVoo()
+end
+
+-- ========================================================
+-- 🚜 LÓGICA PRINCIPAL DO FARMER
+-- ========================================================
 function Farmer:ArarTerra()
     local Manager = Bot.Modules.Manager
     local Scanner = State.ScannerFazenda
@@ -18,8 +77,11 @@ function Farmer:ArarTerra()
             if n:find("grass") or n:find("dirt") then
                 local root = Manager:ObterBlocoRaiz(p)
                 if root then
-                    pcall(function() Manager.PlowRemote:InvokeServer({ block = root }) end)
-                    task.wait(0.05)
+                    -- Dispara rápido (Assíncrono)
+                    task.spawn(function()
+                        pcall(function() Manager.PlowRemote:InvokeServer({ block = root }) end)
+                    end)
+                    task.wait(0.01)
                 end
             end
         end
@@ -32,6 +94,7 @@ function Farmer:AlternarAutoFazenda(valor)
 
     if not valor then
         if Manager then Manager:AtualizarStatus("Ocioso") end
+        PararVoo()
         return
     end
 
@@ -58,37 +121,26 @@ function Farmer:AlternarAutoFazenda(valor)
             if not char or not char:FindFirstChild("HumanoidRootPart") then task.wait(1) continue end
             
             -- ========================================
-            -- 1. IDENTIFICAR SEMENTES NO INVENTÁRIO
+            -- 1. IDENTIFICAR SEMENTES (SEM EQUIPAR NA MÃO!)
             -- ========================================
+            local sementeNomeReal = nil
             local stateSementes = State.SementeSelecionada
             if type(stateSementes) ~= "table" then stateSementes = {["All"] = true} end
             
             local sementesNoInventario = Manager:GetInventoryTools("Seed")
-            local sementesDisponiveis = {}
-            
             for _, sementeNome in ipairs(sementesNoInventario) do
                 if sementeNome ~= "Nenhum item encontrado" and sementeNome ~= "None Found" then
                     if stateSementes["All"] or stateSementes[sementeNome] then
-                        table.insert(sementesDisponiveis, sementeNome)
+                        sementeNomeReal = sementeNome:gsub("Seeds", ""):gsub("seeds", "")
+                        break
                     end
                 end
             end
 
+            -- Sobrepõe com o Priorize Plant, se existir
             local prioridade = State.FarmSettings.PrioritizePlant
             if prioridade and prioridade ~= "Nenhum" and prioridade ~= "None" then
-                table.sort(sementesDisponiveis, function(a, b) return a == prioridade end)
-            end
-
-            local toolEmUso = nil
-            for _, semente in ipairs(sementesDisponiveis) do
-                toolEmUso = char:FindFirstChild(semente) or LocalPlayer.Backpack:FindFirstChild(semente)
-                if toolEmUso then
-                    if toolEmUso.Parent == LocalPlayer.Backpack then
-                        char.Humanoid:EquipTool(toolEmUso)
-                        task.wait(0.2)
-                    end
-                    break
-                end
+                sementeNomeReal = prioridade:gsub("Seeds", ""):gsub("seeds", "")
             end
 
             -- ========================================
@@ -123,7 +175,7 @@ function Farmer:AlternarAutoFazenda(valor)
             local maxCoord = Scanner.AncoraPart.Position + (Scanner.AncoraPart.Size / 2)
             
             local setores = {}
-            local step = 30 -- Lotes Gigantes para aproveitar o range de 45 studs do player
+            local step = 30 -- Fatias de 30 blocos para cobrir 100% do range do player (que é 45)
 
             for y = minCoord.Y + (Config.BLOCK_SIZE/2), maxCoord.Y, Config.BLOCK_SIZE do
                 for x = minCoord.X + (Config.BLOCK_SIZE/2), maxCoord.X, Config.BLOCK_SIZE do
@@ -146,7 +198,7 @@ function Farmer:AlternarAutoFazenda(valor)
                             local nSolo = blocoSolo.Name:lower()
                             if (nSolo:find("grass") or nSolo:find("dirt")) and State.FarmSettings.PlowGrass then
                                 acao = "Arar"
-                            elseif (nSolo:find("soil") or nSolo:find("plowed") or nSolo:find("farm")) and State.FarmSettings.AutoReplace and toolEmUso and not plantaObj then
+                            elseif (nSolo:find("soil") or nSolo:find("plowed") or nSolo:find("farm")) and State.FarmSettings.AutoReplace and sementeNomeReal and not plantaObj then
                                 acao = "Plantar"
                             end
                         elseif not blocoSolo and State.FarmSettings.PlaceGrass then
@@ -176,38 +228,34 @@ function Farmer:AlternarAutoFazenda(valor)
             for _, s in pairs(setores) do table.insert(listaSetores, s) end
 
             -- ========================================
-            -- 4. O ASPIRADOR MULTITHREAD (AURA)
+            -- 4. O ASPIRADOR MULTITHREAD RÁPIDO
             -- ========================================
             while #listaSetores > 0 and State.AutoFarmingCrops do
                 local hrp = char.HumanoidRootPart
                 local posAtual = hrp.Position
 
-                -- Vai no Lote (Chunk) mais próximo do player primeiro
                 table.sort(listaSetores, function(a, b)
                     return (posAtual - a.centro).Magnitude < (posAtual - b.centro).Magnitude
                 end)
 
                 local setorAtual = table.remove(listaSetores, 1)
+                local tarefasNoChunk = setorAtual.tarefas
 
-                -- INICIA O VOO EM BACKGROUND (NÃO TRAVA O SCRIPT!)
+                local voando = false
                 if State.FarmSettings.TweenToTarget then
+                    voando = true
                     task.spawn(function()
-                        local alvoVoo = setorAtual.centro + Vector3.new(0, 10, 0) -- Voa 10 studs acima do centro
-                        if Bot.Modules.Navigator then
-                            Bot.Modules.Navigator:IrPara(alvoVoo, State.FarmSettings.TweenSpeed or 25, "AutoFarmingCrops")
-                        end
+                        local alvoVoo = setorAtual.centro + Vector3.new(0, 10, 0)
+                        VoarParaFisico(alvoVoo)
+                        voando = false
                     end)
                 end
 
-                if Manager then Manager:AtualizarStatus("Limpando Lote: " .. #setorAtual.tarefas .. " ações") end
+                if Manager then Manager:AtualizarStatus("Limpando Lote: " .. #tarefasNoChunk .. " ações") end
 
-                local tarefasNoChunk = setorAtual.tarefas
-
-                -- ENQUANTO VOA, A AURA DETECTA TUDO NO CAMINHO E COLHE EM ESPIRAL
                 while #tarefasNoChunk > 0 and State.AutoFarmingCrops do
                     posAtual = hrp.Position
                     
-                    -- A MÁGICA DA ESPIRAL: Ordena constantemente para agir no que está logo abaixo do boneco
                     table.sort(tarefasNoChunk, function(a, b)
                         return (posAtual - a.pPlanta).Magnitude < (posAtual - b.pPlanta).Magnitude
                     end)
@@ -215,42 +263,58 @@ function Farmer:AlternarAutoFazenda(valor)
                     local maisProximo = tarefasNoChunk[1]
                     local dist = (posAtual - maisProximo.pPlanta).Magnitude
                     
-                    -- SE ENTROU NO RAIO SEGURO DE 38 STUDS (O limite do jogo é 45)
                     if dist <= 38 then
-                        table.remove(tarefasNoChunk, 1) -- Tira da fila
+                        table.remove(tarefasNoChunk, 1)
                         
-                        -- EXECUTA A AÇÃO NO AR!
+                        -- Disparo Metralhadora (Spawn não trava o loop!)
                         if maisProximo.acao == "Colher" then
-                            if maisProximo.objP and maisProximo.objP.Parent then
+                            task.spawn(function()
                                 local payload = { dZnpyRtxna = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nsDahbvdxZludavlcoipDDMYasPlcm", player = LocalPlayer, model = maisProximo.objP }
                                 pcall(function() Manager.HarvestRemote:InvokeServer(payload) end)
-                                task.wait(State.FarmSettings.HarvestDelay or 0.1)
-                            end
+                            end)
+                            task.wait(State.FarmSettings.HarvestDelay or 0.05)
                             
                         elseif maisProximo.acao == "Arar" then
-                            if maisProximo.objS and maisProximo.objS.Parent then
+                            task.spawn(function()
                                 pcall(function() Manager.PlowRemote:InvokeServer({ block = maisProximo.objS }) end)
-                                task.wait(0.1)
-                            end
+                            end)
+                            task.wait(0.05)
                             
                         elseif maisProximo.acao == "Plantar" then
-                            local blockTypeReal = toolEmUso.Name:gsub("Seeds", ""):gsub("seeds", "")
-                            local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(maisProximo.pPlanta), blockType = blockTypeReal, upperBlock = false }
-                            pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
-                            task.wait(State.FarmSettings.PlantDelay or 0.15)
+                            task.spawn(function()
+                                local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(maisProximo.pPlanta), blockType = sementeNomeReal, upperBlock = false }
+                                pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
+                            end)
+                            task.wait(State.FarmSettings.PlantDelay or 0.05)
                             
                         elseif maisProximo.acao == "ColocarGrama" then
-                            local blockGrass = LocalPlayer.Backpack:FindFirstChild("grass") or char:FindFirstChild("grass")
-                            if blockGrass then
-                                local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(maisProximo.pSolo), blockType = blockGrass.Name, upperBlock = false }
-                                pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
-                                task.wait(0.15)
-                            end
+                            task.spawn(function()
+                                local blockGrass = LocalPlayer.Backpack:FindFirstChild("grass") or char:FindFirstChild("grass")
+                                if blockGrass then
+                                    local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(maisProximo.pSolo), blockType = blockGrass.Name, upperBlock = false }
+                                    pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
+                                end
+                            end)
+                            task.wait(0.05)
                         end
                     else
-                        -- Se o mais próximo estiver a mais de 38 studs, significa que o boneco
-                        -- ainda está a voar para lá. Aguarda um pouco e mede a distância de novo.
-                        task.wait(0.05)
+                        -- Correção do loop infinito invisível
+                        if not voando then
+                            if State.FarmSettings.TweenToTarget then
+                                -- O alvo está a mais de 38 studs. Voa especificamente para ele!
+                                voando = true
+                                task.spawn(function()
+                                    VoarParaFisico(maisProximo.pPlanta + Vector3.new(0, 10, 0))
+                                    voando = false
+                                end)
+                            else
+                                -- O alvo está longe e o Tween está DESLIGADO. 
+                                -- Aborta a planta para não travar o script.
+                                table.remove(tarefasNoChunk, 1)
+                            end
+                        else
+                            task.wait(0.05) -- Continua esperando o voo chegar perto
+                        end
                     end
                 end
             end
@@ -259,6 +323,7 @@ function Farmer:AlternarAutoFazenda(valor)
             task.wait(1)
         end
         
+        PararVoo()
         if Manager then Manager:AtualizarStatus("Auto-Fazenda Desligada") end
     end)
 end
