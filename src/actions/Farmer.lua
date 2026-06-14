@@ -7,7 +7,7 @@ local State = Bot.State
 local Config = Bot.Config
 local LocalPlayer = Players.LocalPlayer
 
-local ALCANCE_COLETA = 37
+local ALCANCE_COLETA = 36 -- Alcance conservador e seguro (o máximo do servidor é ~40)
 local ALTURA_PAIRANDO = 10
 local PLANTIO_COOLDOWN = 8
 
@@ -77,8 +77,7 @@ local function PairarEm(posicao)
     local hum = char and char:FindFirstChild("Humanoid")
     if not hrp or not hum then return end
 
-    if MoverConnection then MoverConnection:Disconnect(); MoverConnection = nil end
-    if AntiGravity then AntiGravity:Destroy(); AntiGravity = nil end
+    PararVoo(false)
 
     hum.PlatformStand = true
     hrp.Anchored = false
@@ -152,26 +151,15 @@ local function IrParaParada(posicao)
     return true
 end
 
+-- ==========================================
+-- 🧠 FILTROS E UTILIDADES
+-- ==========================================
 local function LimparNomeSemente(nome)
-    return tostring(nome or "")
-        :gsub("Seeds", "")
-        :gsub("seeds", "")
-        :gsub("^%s+", "")
-        :gsub("%s+$", "")
+    return tostring(nome or ""):gsub("Seeds", ""):gsub("seeds", ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
 local function NormalizarNome(nome)
-    return tostring(nome or "")
-        :lower()
-        :gsub("seeds", "")
-        :gsub("seed", "")
-        :gsub("sapling", "")
-        :gsub("spore", "")
-        :gsub("crop", "")
-        :gsub("plant", "")
-        :gsub("%s+", "")
-        :gsub("_", "")
-        :gsub("%-", "")
+    return tostring(nome or ""):lower():gsub("seeds", ""):gsub("seed", ""):gsub("sapling", ""):gsub("spore", ""):gsub("crop", ""):gsub("plant", ""):gsub("%s+", ""):gsub("_", ""):gsub("%-", "")
 end
 
 local function ObterNomeCultura(nome)
@@ -214,25 +202,21 @@ end
 local function ObterPastaBlocks()
     local islands = workspace:FindFirstChild("Islands")
     if not islands then return nil end
-
     for _, island in ipairs(islands:GetChildren()) do
         local blocks = island:FindFirstChild("Blocks")
         if blocks then return blocks end
     end
-
     return nil
 end
 
 local function ObterPartesDoSeletor(scanner)
     local blocks = ObterPastaBlocks()
     local params = nil
-
     if blocks then
         params = OverlapParams.new()
         params.FilterDescendantsInstances = { blocks }
         params.FilterType = Enum.RaycastFilterType.Include
     end
-
     local querySize = scanner.AncoraPart.Size - Vector3.new(0.2, 0.2, 0.2)
     return workspace:GetPartBoundsInBox(scanner.AncoraPart.CFrame, querySize, params)
 end
@@ -253,11 +237,9 @@ local function ObterSementesParaPlantio(Manager)
 
     for _, sementeNome in ipairs(Manager:GetInventoryTools("Seed")) do
         if sementeNome ~= "Nenhum item encontrado" and sementeNome ~= "None Found" then
-            local entra = stateSementes["All"] or stateSementes[sementeNome]
-            if entra then
+            if stateSementes["All"] or stateSementes[sementeNome] then
                 local limpa = LimparNomeSemente(sementeNome)
                 local normalizada = ObterNomeCultura(sementeNome)
-
                 if prioridadeNorm and normalizada == prioridadeNorm then
                     prioridadeItem = limpa
                 elseif not jaFoi[limpa] then
@@ -268,10 +250,7 @@ local function ObterSementesParaPlantio(Manager)
         end
     end
 
-    if prioridadeItem then
-        table.insert(selecionadas, 1, prioridadeItem)
-    end
-
+    if prioridadeItem then table.insert(selecionadas, 1, prioridadeItem) end
     return selecionadas
 end
 
@@ -280,22 +259,8 @@ local function EscolherSementeParaPlantio(Manager)
     return sementes[1]
 end
 
-local function LimparPlantiosRecentes()
-    local agora = os.clock()
-    for key, instante in pairs(PlantiosRecentes) do
-        if agora - instante > PLANTIO_COOLDOWN then
-            PlantiosRecentes[key] = nil
-        end
-    end
-end
-
 local function MapearFazenda(Scanner, Manager)
-    local scan = {
-        solos = {},
-        plantas = {},
-        soloOcupado = {}
-    }
-
+    local scan = { solos = {}, plantas = {}, soloOcupado = {} }
     local processados = {}
     local bounds = ObterPartesDoSeletor(Scanner)
 
@@ -322,45 +287,35 @@ local function MapearFazenda(Scanner, Manager)
             end
         end
     end
-
     return scan
 end
 
-local function EscolherMelhorParada(tarefas, posAtual)
-    local melhor = nil
-    local melhorQtd = -1
-    local melhorDist = math.huge
-
-    for _, candidata in ipairs(tarefas) do
-        local qtd = 0
-        for _, tarefa in ipairs(tarefas) do
-            if DistanciaXZ(candidata.pos, tarefa.pos) <= ALCANCE_COLETA then
-                qtd += 1
+-- ==========================================
+-- 🛠️ COMUNICAÇÃO SEGURA COM O SERVIDOR
+-- ==========================================
+local function DispararRemoteSeguro(remote, payload)
+    -- Usa task.spawn para garantir que o script principal (loops e espiral) NÃO trave se o servidor demorar
+    task.spawn(function()
+        pcall(function()
+            if remote:IsA("RemoteEvent") then
+                remote:FireServer(payload)
+            elseif remote:IsA("RemoteFunction") then
+                remote:InvokeServer(payload)
             end
-        end
-
-        local dist = DistanciaXZ(posAtual, candidata.pos)
-        if qtd > melhorQtd or (qtd == melhorQtd and dist < melhorDist) then
-            melhor = candidata
-            melhorQtd = qtd
-            melhorDist = dist
-        end
-    end
-
-    if not melhor then return nil, 0 end
-    return melhor.pos + Vector3.new(0, ALTURA_PAIRANDO, 0), melhorQtd
+        end)
+    end)
 end
 
 local function DispararTarefa(Manager, char, tarefa)
     if tarefa.acao == "Colher" then
         if tarefa.objP and tarefa.objP:IsDescendantOf(workspace) then
             local payload = { dZnpyRtxna = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nsDahbvdxZludavlcoipDDMYasPlcm", player = LocalPlayer, model = tarefa.objP }
-            pcall(function() Manager.HarvestRemote:InvokeServer(payload) end)
+            DispararRemoteSeguro(Manager.HarvestRemote, payload)
             return true
         end
     elseif tarefa.acao == "Arar" then
         if tarefa.objS and tarefa.objS:IsDescendantOf(workspace) then
-            pcall(function() Manager.PlowRemote:InvokeServer({ block = tarefa.objS }) end)
+            DispararRemoteSeguro(Manager.PlowRemote, { block = tarefa.objS })
             return true
         end
     elseif tarefa.acao == "Plantar" then
@@ -368,76 +323,122 @@ local function DispararTarefa(Manager, char, tarefa)
         if sementeNomeReal and not PlantiosRecentes[tarefa.key] then
             PlantiosRecentes[tarefa.key] = os.clock()
             local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(tarefa.pos), blockType = sementeNomeReal, upperBlock = false }
-            pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
+            DispararRemoteSeguro(Manager.PlaceRemote, payload)
             return true
         end
     elseif tarefa.acao == "ColocarGrama" then
         local blockGrass = LocalPlayer.Backpack:FindFirstChild("grass") or char:FindFirstChild("grass")
         if blockGrass then
             local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(tarefa.posSolo), blockType = blockGrass.Name, upperBlock = false }
-            pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
+            DispararRemoteSeguro(Manager.PlaceRemote, payload)
             return true
         end
     end
-
     return false
 end
 
-local function ProcessarTarefasPorParada(Manager, char, tarefas, rotulo)
+-- ==========================================
+-- 🎯 ALGORITMO PREMIUM: CHUNKING MATEMÁTICO E ESPIRAL DE COLHEITA
+-- ==========================================
+local function ExecutarParadasEstrategicas(Manager, char, tarefasGerais, rotulo, Scanner)
+    if #tarefasGerais == 0 then return end
+
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local totalInicial = #tarefas
-    local concluidas = 0
-    local paradaIndex = 0
+    -- 1. Chunking 2D Cartesian (Divisão Geográfica de Alta Eficiência)
+    local paradas = {}
+    local passo = 45 -- O alcance máximo é ~38. 45 studs entre centros garante sobreposição quase perfeita
+    local ancPos = Scanner.AncoraPart.Position
+    local ancSize = Scanner.AncoraPart.Size
+    
+    local minX = ancPos.X - (ancSize.X / 2)
+    local maxX = ancPos.X + (ancSize.X / 2)
+    local minZ = ancPos.Z - (ancSize.Z / 2)
+    local maxZ = ancPos.Z + (ancSize.Z / 2)
 
-    while #tarefas > 0 and State.AutoFarmingCrops do
-        paradaIndex += 1
-        local alvo, alcancePrevisto = EscolherMelhorParada(tarefas, hrp.Position)
-        if not alvo then break end
-
-        if Manager then
-            Manager:AtualizarStatus(rotulo .. " | parada " .. paradaIndex .. " | alcance: " .. alcancePrevisto)
+    -- Se o plot for pequeno, fica exatamente no meio e pega tudo de uma vez (A Posição 23 do seu exemplo!)
+    if ancSize.X <= passo and ancSize.Z <= passo then
+        table.insert(paradas, ancPos + Vector3.new(0, ALTURA_PAIRANDO, 0))
+    else
+        for x = minX + (passo/2), maxX + (passo/2), passo do
+            for z = minZ + (passo/2), maxZ + (passo/2), passo do
+                local cx = math.min(x, maxX)
+                local cz = math.min(z, maxZ)
+                table.insert(paradas, Vector3.new(cx, ancPos.Y + ALTURA_PAIRANDO, cz))
+            end
         end
+    end
 
-        if not IrParaParada(alvo) then break end
-        task.wait(0.15)
+    local totalInicial = #tarefasGerais
+    local concluidas = 0
 
-        local restantes = {}
-        local disparadasNestaParada = 0
+    -- 2. Otimização de Rota (Viaja para as zonas mais perto primeiro)
+    table.sort(paradas, function(a, b)
+        return (hrp.Position - a).Magnitude < (hrp.Position - b).Magnitude
+    end)
 
-        for _, tarefa in ipairs(tarefas) do
-            if DistanciaXZ(alvo, tarefa.pos) <= ALCANCE_COLETA then
-                if DispararTarefa(Manager, char, tarefa) then
-                    concluidas += 1
-                    disparadasNestaParada += 1
-                    if Manager then
-                        Manager:AtualizarStatus(rotulo .. " | " .. concluidas .. "/" .. totalInicial .. " no seletor")
-                    end
+    for i, alvoParada in ipairs(paradas) do
+        if not State.AutoFarmingCrops then break end
+        if #tarefasGerais == 0 then break end
 
-                    if tarefa.acao == "Colher" then
-                        task.wait(State.FarmSettings.HarvestDelay or 0.08)
-                    elseif tarefa.acao == "Plantar" then
-                        task.wait(State.FarmSettings.PlantDelay or 0.12)
-                    else
-                        task.wait(0.05)
-                    end
-                end
+        -- 3. Identifica as tarefas que podem ser colhidas DESTA parada
+        local tarefasDestaParada = {}
+        local tarefasRestantes = {}
+
+        for _, t in ipairs(tarefasGerais) do
+            if DistanciaXZ(alvoParada, t.pos) <= ALCANCE_COLETA then
+                table.insert(tarefasDestaParada, t)
             else
-                table.insert(restantes, tarefa)
+                table.insert(tarefasRestantes, t)
             end
         end
 
-        tarefas = restantes
+        tarefasGerais = tarefasRestantes -- Passa o resto para a próxima zona analisar
 
-        if disparadasNestaParada == 0 then
-            task.wait(0.2)
-        else
-            task.wait(0.35)
+        if #tarefasDestaParada > 0 then
+            if Manager then Manager:AtualizarStatus(rotulo .. " | Voando p/ Zona " .. i .. "/" .. #paradas) end
+            
+            -- Voa pro centro do Chunk (Ex: Posição 23)
+            if not IrParaParada(alvoParada) then break end
+            task.wait(0.15) -- Respira 150ms para a física do boneco estabilizar no servidor
+            
+            -- 4. O CONTORNO EM ESPIRAL!
+            -- Organiza as plantas do centro (debaixo do seu pé) em direção às bordas.
+            table.sort(tarefasDestaParada, function(a, b)
+                return DistanciaXZ(alvoParada, a.pos) < DistanciaXZ(alvoParada, b.pos)
+            end)
+
+            -- Inicia a varredura espiral
+            for _, tarefa in ipairs(tarefasDestaParada) do
+                if not State.AutoFarmingCrops then break end
+                
+                if DispararTarefa(Manager, char, tarefa) then
+                    concluidas += 1
+                    if Manager then
+                        Manager:AtualizarStatus(string.format("%s | %d/%d (Zona %d)", rotulo, concluidas, totalInicial, i))
+                    end
+
+                    -- Os tempos de cooldown da UI (ex: 0.001) funcionam muito bem agora!
+                    if tarefa.acao == "Colher" then
+                        task.wait(State.FarmSettings.HarvestDelay or 0.02)
+                    elseif tarefa.acao == "Plantar" then
+                        task.wait(State.FarmSettings.PlantDelay or 0.05)
+                    else
+                        task.wait(0.02)
+                    end
+                end
+            end
+            
+            -- Descansa levemente antes de voar para a próxima "Casa 28"
+            task.wait(0.1)
         end
     end
 end
 
+-- ==========================================
+-- 🚜 LÓGICA EXTERNA DO FARMER
+-- ==========================================
 function Farmer:ArarTerra()
     local Manager = Bot.Modules.Manager
     local Scanner = State.ScannerFazenda
@@ -450,8 +451,8 @@ function Farmer:ArarTerra()
             local root = Manager:ObterBlocoRaiz(p)
             if root and not processados[root] and EhAravel(root.Name) then
                 processados[root] = true
-                pcall(function() Manager.PlowRemote:InvokeServer({ block = root }) end)
-                task.wait(0.05)
+                DispararRemoteSeguro(Manager.PlowRemote, { block = root })
+                task.wait(0.02)
             end
         end
     end)
@@ -489,12 +490,18 @@ function Farmer:AlternarAutoFazenda(valor)
             local char = LocalPlayer.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then task.wait(1) continue end
 
-            LimparPlantiosRecentes()
+            -- Limpa a lista anti-spam de plantar para a nova rodada
+            local agora = os.clock()
+            for key, instante in pairs(PlantiosRecentes) do
+                if agora - instante > PLANTIO_COOLDOWN then PlantiosRecentes[key] = nil end
+            end
             if not State.FarmSettings.ShowStopViz then LimparVizuParada() end
 
+            -- 1. Scanneia toda a Fazenda Verde
             local scan = MapearFazenda(Scanner, Manager)
             local tarefasColheita = {}
 
+            -- 2. Tabela de Colheita
             for key, plantaObj in pairs(scan.plantas) do
                 if plantaObj and plantaObj:FindFirstChild("Harvestable", true) then
                     local pos = ObterPosicao(plantaObj)
@@ -510,12 +517,14 @@ function Farmer:AlternarAutoFazenda(valor)
             end
 
             if #tarefasColheita > 0 then
-                ProcessarTarefasPorParada(Manager, char, tarefasColheita, "Coletando seletor: " .. #tarefasColheita .. " colheitas")
-                if Manager then Manager:AtualizarStatus("Conferindo colheita...") end
-                task.wait(0.8)
+                -- Chama o algoritmo mestre de Espiral + Chunking!
+                ExecutarParadasEstrategicas(Manager, char, tarefasColheita, "Coletando", Scanner)
+                if Manager then Manager:AtualizarStatus("Conferindo plantio novo...") end
+                task.wait(0.3)
                 continue
             end
 
+            -- 3. Tabela de Manutenção (Plantar/Arar)
             local sementesPlantio = ObterSementesParaPlantio(Manager)
             local tarefasManutencao = {}
             local plantiosPlanejados = {}
@@ -528,31 +537,24 @@ function Farmer:AlternarAutoFazenda(valor)
 
                 if EhAravel(nSolo) and State.FarmSettings.PlowGrass then
                     table.insert(tarefasManutencao, {
-                        acao = "Arar",
-                        key = keySolo,
-                        pos = posSolo,
-                        objS = blocoSolo
+                        acao = "Arar", key = keySolo, pos = posSolo, objS = blocoSolo
                     })
                 elseif EhSoloPlantavel(nSolo) and State.FarmSettings.AutoReplace and #sementesPlantio > 0 then
                     if not scan.soloOcupado[keySolo] and not PlantiosRecentes[keyPlanta] and not plantiosPlanejados[keyPlanta] then
                         plantiosPlanejados[keyPlanta] = true
                         table.insert(tarefasManutencao, {
-                            acao = "Plantar",
-                            key = keyPlanta,
-                            pos = posPlanta,
-                            posSolo = posSolo,
-                            objS = blocoSolo
+                            acao = "Plantar", key = keyPlanta, pos = posPlanta, posSolo = posSolo, objS = blocoSolo
                         })
                     end
                 end
             end
 
             if #tarefasManutencao > 0 then
-                ProcessarTarefasPorParada(Manager, char, tarefasManutencao, "Arrumando seletor: " .. #tarefasManutencao .. " acoes")
-                if Manager then Manager:AtualizarStatus("Conferindo plantio...") end
-                task.wait(0.8)
+                ExecutarParadasEstrategicas(Manager, char, tarefasManutencao, "Arrumando Solo", Scanner)
+                if Manager then Manager:AtualizarStatus("Conferindo ciclo...") end
+                task.wait(0.3)
             else
-                if Manager then Manager:AtualizarStatus("Nada pronto no seletor. Aguardando...") end
+                if Manager then Manager:AtualizarStatus("Fazenda 100% otimizada! Aguardando...") end
                 task.wait(1)
             end
         end
