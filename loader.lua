@@ -21,7 +21,7 @@ _G.IslandsBot = {
             PlowGrass = false, PlaceGrass = false, AutoReplace = false,
             PrioritizePlant = "Nenhum", HarvestDelay = 0.1, PlantDelay = 0.15,
             AutoUseSelectedSave = false, CurrentSaveName = "Nenhum",
-            TweenToTarget = false, TweenSpeed = 20
+            TweenToTarget = false, TweenSpeed = 20, ShowStopViz = false
         },
         
         AncoraPart = nil, Handles = nil, CaixaVisual = nil,
