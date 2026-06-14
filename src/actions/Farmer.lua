@@ -14,10 +14,53 @@ local PLANTIO_COOLDOWN = 8
 local MoverConnection = nil
 local AntiGravity = nil
 local PlantiosRecentes = {}
+local VizuParada = {}
+
+local function LimparVizuParada()
+    for _, obj in ipairs(VizuParada) do
+        if obj then obj:Destroy() end
+    end
+    VizuParada = {}
+end
+
+local function AtualizarVizuParada(posicao)
+    LimparVizuParada()
+    if not State.FarmSettings.ShowStopViz then return end
+
+    local area = Instance.new("Part")
+    area.Name = "IslandsFarm_StopArea"
+    area.Anchored = true
+    area.CanCollide = false
+    area.CanTouch = false
+    area.CanQuery = false
+    area.Transparency = 0.82
+    area.Color = Color3.fromRGB(255, 210, 40)
+    area.Material = Enum.Material.Neon
+    area.Size = Vector3.new(ALCANCE_COLETA * 2, 0.18, ALCANCE_COLETA * 2)
+    area.Position = Vector3.new(posicao.X, posicao.Y - ALTURA_PAIRANDO + 0.35, posicao.Z)
+    area.Parent = workspace
+    table.insert(VizuParada, area)
+
+    local center = Instance.new("Part")
+    center.Name = "IslandsFarm_StopCenter"
+    center.Shape = Enum.PartType.Ball
+    center.Anchored = true
+    center.CanCollide = false
+    center.CanTouch = false
+    center.CanQuery = false
+    center.Transparency = 0.25
+    center.Color = Color3.fromRGB(0, 180, 255)
+    center.Material = Enum.Material.Neon
+    center.Size = Vector3.new(1.5, 1.5, 1.5)
+    center.Position = posicao
+    center.Parent = workspace
+    table.insert(VizuParada, center)
+end
 
 local function PararVoo()
     if MoverConnection then MoverConnection:Disconnect(); MoverConnection = nil end
     if AntiGravity then AntiGravity:Destroy(); AntiGravity = nil end
+    LimparVizuParada()
 
     local char = LocalPlayer.Character
     if char then
@@ -98,6 +141,8 @@ local function IrParaParada(posicao)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
+
+    AtualizarVizuParada(posicao)
 
     if State.FarmSettings.TweenToTarget then
         return VoarParaFisico(posicao, true)
@@ -207,28 +252,47 @@ local function ObterPartesDoSeletor(scanner)
     return workspace:GetPartBoundsInBox(scanner.AncoraPart.CFrame, querySize, params)
 end
 
-local function ResolverCulturaDesejada(Manager)
-    local prioridade = State.FarmSettings.PrioritizePlant
-    if prioridade and prioridade ~= "Nenhum" and prioridade ~= "None" then
-        return LimparNomeSemente(prioridade), ObterNomeCultura(prioridade), true
-    end
-
+local function ObterSementesParaPlantio(Manager)
     local stateSementes = State.SementeSelecionada
     if type(stateSementes) ~= "table" then stateSementes = { ["All"] = true } end
 
-    local sementesNoInventario = Manager:GetInventoryTools("Seed")
-    for _, sementeNome in ipairs(sementesNoInventario) do
+    local prioridade = State.FarmSettings.PrioritizePlant
+    local prioridadeNorm = nil
+    if prioridade and prioridade ~= "Nenhum" and prioridade ~= "None" then
+        prioridadeNorm = ObterNomeCultura(prioridade)
+    end
+
+    local selecionadas = {}
+    local jaFoi = {}
+    local prioridadeItem = nil
+
+    for _, sementeNome in ipairs(Manager:GetInventoryTools("Seed")) do
         if sementeNome ~= "Nenhum item encontrado" and sementeNome ~= "None Found" then
-            local sementeLimpa = LimparNomeSemente(sementeNome)
-            if stateSementes[sementeNome] then
-                return sementeLimpa, ObterNomeCultura(sementeNome), true
-            elseif stateSementes["All"] then
-                return sementeLimpa, nil, false
+            local entra = stateSementes["All"] or stateSementes[sementeNome]
+            if entra then
+                local limpa = LimparNomeSemente(sementeNome)
+                local normalizada = ObterNomeCultura(sementeNome)
+
+                if prioridadeNorm and normalizada == prioridadeNorm then
+                    prioridadeItem = limpa
+                elseif not jaFoi[limpa] then
+                    table.insert(selecionadas, limpa)
+                    jaFoi[limpa] = true
+                end
             end
         end
     end
 
-    return nil, nil, false
+    if prioridadeItem then
+        table.insert(selecionadas, 1, prioridadeItem)
+    end
+
+    return selecionadas
+end
+
+local function EscolherSementeParaPlantio(Manager)
+    local sementes = ObterSementesParaPlantio(Manager)
+    return sementes[1]
 end
 
 local function LimparPlantiosRecentes()
@@ -302,7 +366,7 @@ local function EscolherMelhorParada(tarefas, posAtual)
     return melhor.pos + Vector3.new(0, ALTURA_PAIRANDO, 0), melhorQtd
 end
 
-local function DispararTarefa(Manager, char, tarefa, sementeNomeReal)
+local function DispararTarefa(Manager, char, tarefa)
     if tarefa.acao == "Colher" then
         if tarefa.objP and tarefa.objP:IsDescendantOf(workspace) then
             local payload = { dZnpyRtxna = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nsDahbvdxZludavlcoipDDMYasPlcm", player = LocalPlayer, model = tarefa.objP }
@@ -315,6 +379,7 @@ local function DispararTarefa(Manager, char, tarefa, sementeNomeReal)
             return true
         end
     elseif tarefa.acao == "Plantar" then
+        local sementeNomeReal = EscolherSementeParaPlantio(Manager)
         if sementeNomeReal and not PlantiosRecentes[tarefa.key] then
             PlantiosRecentes[tarefa.key] = os.clock()
             local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(tarefa.pos), blockType = sementeNomeReal, upperBlock = false }
@@ -333,7 +398,7 @@ local function DispararTarefa(Manager, char, tarefa, sementeNomeReal)
     return false
 end
 
-local function ProcessarTarefasPorParada(Manager, char, tarefas, sementeNomeReal, rotulo)
+local function ProcessarTarefasPorParada(Manager, char, tarefas, rotulo)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
@@ -358,7 +423,7 @@ local function ProcessarTarefasPorParada(Manager, char, tarefas, sementeNomeReal
 
         for _, tarefa in ipairs(tarefas) do
             if DistanciaXZ(alvo, tarefa.pos) <= ALCANCE_COLETA then
-                if DispararTarefa(Manager, char, tarefa, sementeNomeReal) then
+                if DispararTarefa(Manager, char, tarefa) then
                     concluidas += 1
                     disparadasNestaParada += 1
                     if Manager then
@@ -440,84 +505,65 @@ function Farmer:AlternarAutoFazenda(valor)
             if not char or not char:FindFirstChild("HumanoidRootPart") then task.wait(1) continue end
 
             LimparPlantiosRecentes()
+            if not State.FarmSettings.ShowStopViz then LimparVizuParada() end
 
-            local sementeNomeReal, culturaAlvo, somenteCulturaAlvo = ResolverCulturaDesejada(Manager)
             local scan = MapearFazenda(Scanner, Manager)
             local tarefasColheita = {}
 
             for key, plantaObj in pairs(scan.plantas) do
                 if plantaObj and plantaObj:FindFirstChild("Harvestable", true) then
-                    if not somenteCulturaAlvo or NomeCombina(plantaObj, culturaAlvo) then
-                        local pos = ObterPosicao(plantaObj)
-                        if pos then
-                            table.insert(tarefasColheita, {
-                                acao = "Colher",
-                                key = key,
-                                pos = Scanner:AlinharParaGrid(pos),
-                                objP = plantaObj
-                            })
-                        end
+                    local pos = ObterPosicao(plantaObj)
+                    if pos then
+                        table.insert(tarefasColheita, {
+                            acao = "Colher",
+                            key = key,
+                            pos = Scanner:AlinharParaGrid(pos),
+                            objP = plantaObj
+                        })
                     end
                 end
             end
 
             if #tarefasColheita > 0 then
-                local alvoTxt = culturaAlvo and (" | alvo: " .. culturaAlvo) or ""
-                ProcessarTarefasPorParada(Manager, char, tarefasColheita, sementeNomeReal, "Coletando seletor: " .. #tarefasColheita .. " colheitas" .. alvoTxt)
+                ProcessarTarefasPorParada(Manager, char, tarefasColheita, "Coletando seletor: " .. #tarefasColheita .. " colheitas")
                 if Manager then Manager:AtualizarStatus("Conferindo colheita...") end
                 task.wait(0.8)
                 continue
             end
 
-            local minCoord = Scanner.AncoraPart.Position - (Scanner.AncoraPart.Size / 2)
-            local maxCoord = Scanner.AncoraPart.Position + (Scanner.AncoraPart.Size / 2)
+            local sementesPlantio = ObterSementesParaPlantio(Manager)
             local tarefasManutencao = {}
             local plantiosPlanejados = {}
 
-            for y = minCoord.Y + (Config.BLOCK_SIZE / 2), maxCoord.Y, Config.BLOCK_SIZE do
-                for x = minCoord.X + (Config.BLOCK_SIZE / 2), maxCoord.X, Config.BLOCK_SIZE do
-                    for z = minCoord.Z + (Config.BLOCK_SIZE / 2), maxCoord.Z, Config.BLOCK_SIZE do
-                        local posPlanta = Vector3.new(x, y, z)
-                        local posSolo = posPlanta - Vector3.new(0, Config.BLOCK_SIZE, 0)
-                        local keyPlanta = CriarKey(posPlanta)
-                        local keySolo = CriarKey(posSolo)
-                        local blocoSolo = scan.solos[keySolo]
+            for keySolo, blocoSolo in pairs(scan.solos) do
+                local posSolo = Scanner:AlinharParaGrid(ObterPosicao(blocoSolo))
+                local posPlanta = posSolo + Vector3.new(0, Config.BLOCK_SIZE, 0)
+                local keyPlanta = CriarKey(posPlanta)
+                local nSolo = blocoSolo.Name
 
-                        if blocoSolo then
-                            local nSolo = blocoSolo.Name
-                            if EhAravel(nSolo) and State.FarmSettings.PlowGrass then
-                                table.insert(tarefasManutencao, {
-                                    acao = "Arar",
-                                    key = keySolo,
-                                    pos = posSolo,
-                                    objS = blocoSolo
-                                })
-                            elseif EhSoloPlantavel(nSolo) and State.FarmSettings.AutoReplace and sementeNomeReal then
-                                if not scan.soloOcupado[keySolo] and not PlantiosRecentes[keyPlanta] and not plantiosPlanejados[keyPlanta] then
-                                    plantiosPlanejados[keyPlanta] = true
-                                    table.insert(tarefasManutencao, {
-                                        acao = "Plantar",
-                                        key = keyPlanta,
-                                        pos = posPlanta,
-                                        posSolo = posSolo,
-                                        objS = blocoSolo
-                                    })
-                                end
-                            end
-                        elseif State.FarmSettings.PlaceGrass then
-                            table.insert(tarefasManutencao, {
-                                acao = "ColocarGrama",
-                                key = keySolo,
-                                pos = posSolo,
-                                posSolo = posSolo
-                            })
-                        end
+                if EhAravel(nSolo) and State.FarmSettings.PlowGrass then
+                    table.insert(tarefasManutencao, {
+                        acao = "Arar",
+                        key = keySolo,
+                        pos = posSolo,
+                        objS = blocoSolo
+                    })
+                elseif EhSoloPlantavel(nSolo) and State.FarmSettings.AutoReplace and #sementesPlantio > 0 then
+                    if not scan.soloOcupado[keySolo] and not PlantiosRecentes[keyPlanta] and not plantiosPlanejados[keyPlanta] then
+                        plantiosPlanejados[keyPlanta] = true
+                        table.insert(tarefasManutencao, {
+                            acao = "Plantar",
+                            key = keyPlanta,
+                            pos = posPlanta,
+                            posSolo = posSolo,
+                            objS = blocoSolo
+                        })
                     end
                 end
             end
 
             if #tarefasManutencao > 0 then
-                ProcessarTarefasPorParada(Manager, char, tarefasManutencao, sementeNomeReal, "Arrumando seletor: " .. #tarefasManutencao .. " acoes")
+                ProcessarTarefasPorParada(Manager, char, tarefasManutencao, "Arrumando seletor: " .. #tarefasManutencao .. " acoes")
                 if Manager then Manager:AtualizarStatus("Conferindo plantio...") end
                 task.wait(0.8)
             else
