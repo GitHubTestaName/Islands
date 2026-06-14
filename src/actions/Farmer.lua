@@ -7,7 +7,7 @@ local State = Bot.State
 local Config = Bot.Config
 local LocalPlayer = Players.LocalPlayer
 
-local ALCANCE_COLETA = 36 -- Alcance conservador e seguro (o máximo do servidor é ~40)
+local ALCANCE_COLETA = 40 -- Limite 3D REAL do Servidor
 local ALTURA_PAIRANDO = 10
 local PLANTIO_COOLDOWN = 8
 
@@ -193,12 +193,6 @@ local function CriarKey(pos)
     return string.format("%.1f_%.1f_%.1f", pos.X, pos.Y, pos.Z)
 end
 
-local function DistanciaXZ(a, b)
-    local dx = a.X - b.X
-    local dz = a.Z - b.Z
-    return math.sqrt((dx * dx) + (dz * dz))
-end
-
 local function ObterPastaBlocks()
     local islands = workspace:FindFirstChild("Islands")
     if not islands then return nil end
@@ -217,8 +211,13 @@ local function ObterPartesDoSeletor(scanner)
         params.FilterDescendantsInstances = { blocks }
         params.FilterType = Enum.RaycastFilterType.Include
     end
-    local querySize = scanner.AncoraPart.Size - Vector3.new(0.2, 0.2, 0.2)
-    return workspace:GetPartBoundsInBox(scanner.AncoraPart.CFrame, querySize, params)
+    
+    -- A MÁGICA DOS 2 BLOCOS: Expande a caixa 6 studs para baixo invisivelmente
+    -- Assim você não precisa ficar lutando com a altura do seletor na UI!
+    local querySize = scanner.AncoraPart.Size + Vector3.new(0, 6, 0)
+    local queryCFrame = scanner.AncoraPart.CFrame * CFrame.new(0, -3, 0)
+    
+    return workspace:GetPartBoundsInBox(queryCFrame, querySize, params)
 end
 
 local function ObterSementesParaPlantio(Manager)
@@ -294,7 +293,6 @@ end
 -- 🛠️ COMUNICAÇÃO SEGURA COM O SERVIDOR
 -- ==========================================
 local function DispararRemoteSeguro(remote, payload)
-    -- Usa task.spawn para garantir que o script principal (loops e espiral) NÃO trave se o servidor demorar
     task.spawn(function()
         pcall(function()
             if remote:IsA("RemoteEvent") then
@@ -338,100 +336,81 @@ local function DispararTarefa(Manager, char, tarefa)
 end
 
 -- ==========================================
--- 🎯 ALGORITMO PREMIUM: CHUNKING MATEMÁTICO E ESPIRAL DE COLHEITA
+-- 🎯 ALGORITMO PREMIUM: CLUSTER DINÂMICO 3D (O Fim das Zonas Mortas)
 -- ==========================================
-local function ExecutarParadasEstrategicas(Manager, char, tarefasGerais, rotulo, Scanner)
-    if #tarefasGerais == 0 then return end
-
+local function ExecutarLimpezaDinamica(Manager, char, tarefasGerais, rotulo)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
-    -- 1. Chunking 2D Cartesian (Divisão Geográfica de Alta Eficiência)
-    local paradas = {}
-    local passo = 45 -- O alcance máximo é ~38. 45 studs entre centros garante sobreposição quase perfeita
-    local ancPos = Scanner.AncoraPart.Position
-    local ancSize = Scanner.AncoraPart.Size
-    
-    local minX = ancPos.X - (ancSize.X / 2)
-    local maxX = ancPos.X + (ancSize.X / 2)
-    local minZ = ancPos.Z - (ancSize.Z / 2)
-    local maxZ = ancPos.Z + (ancSize.Z / 2)
-
-    -- Se o plot for pequeno, fica exatamente no meio e pega tudo de uma vez (A Posição 23 do seu exemplo!)
-    if ancSize.X <= passo and ancSize.Z <= passo then
-        table.insert(paradas, ancPos + Vector3.new(0, ALTURA_PAIRANDO, 0))
-    else
-        for x = minX + (passo/2), maxX + (passo/2), passo do
-            for z = minZ + (passo/2), maxZ + (passo/2), passo do
-                local cx = math.min(x, maxX)
-                local cz = math.min(z, maxZ)
-                table.insert(paradas, Vector3.new(cx, ancPos.Y + ALTURA_PAIRANDO, cz))
-            end
-        end
-    end
 
     local totalInicial = #tarefasGerais
     local concluidas = 0
 
-    -- 2. Otimização de Rota (Viaja para as zonas mais perto primeiro)
-    table.sort(paradas, function(a, b)
-        return (hrp.Position - a).Magnitude < (hrp.Position - b).Magnitude
-    end)
-
-    for i, alvoParada in ipairs(paradas) do
-        if not State.AutoFarmingCrops then break end
-        if #tarefasGerais == 0 then break end
-
-        -- 3. Identifica as tarefas que podem ser colhidas DESTA parada
-        local tarefasDestaParada = {}
-        local tarefasRestantes = {}
+    while #tarefasGerais > 0 and State.AutoFarmingCrops do
+        -- 1. Acha o "Centro de Massa" do próximo grupo de plantas
+        local primeiraPos = tarefasGerais[1].pos
+        local somaPos = Vector3.new(0,0,0)
+        local contagemGrupo = 0
 
         for _, t in ipairs(tarefasGerais) do
-            if DistanciaXZ(alvoParada, t.pos) <= ALCANCE_COLETA then
-                table.insert(tarefasDestaParada, t)
-            else
-                table.insert(tarefasRestantes, t)
+            -- Agrupa tudo num raio de 50 studs para achar o meio perfeito da plantação
+            if (t.pos - primeiraPos).Magnitude <= 50 then
+                somaPos = somaPos + t.pos
+                contagemGrupo = contagemGrupo + 1
             end
         end
 
-        tarefasGerais = tarefasRestantes -- Passa o resto para a próxima zona analisar
+        local centroIdeal = somaPos / contagemGrupo
+        local alvoVoo = centroIdeal + Vector3.new(0, ALTURA_PAIRANDO, 0)
 
-        if #tarefasDestaParada > 0 then
-            if Manager then Manager:AtualizarStatus(rotulo .. " | Voando p/ Zona " .. i .. "/" .. #paradas) end
-            
-            -- Voa pro centro do Chunk (Ex: Posição 23)
-            if not IrParaParada(alvoParada) then break end
-            task.wait(0.15) -- Respira 150ms para a física do boneco estabilizar no servidor
-            
-            -- 4. O CONTORNO EM ESPIRAL!
-            -- Organiza as plantas do centro (debaixo do seu pé) em direção às bordas.
-            table.sort(tarefasDestaParada, function(a, b)
-                return DistanciaXZ(alvoParada, a.pos) < DistanciaXZ(alvoParada, b.pos)
+        -- 2. Voa para o Ponto de Equilíbrio
+        if Manager then Manager:AtualizarStatus(rotulo .. " | Movendo para nova área...") end
+        if not IrParaParada(alvoVoo) then break end
+        task.wait(0.15) -- Respira 150ms para a física do boneco estabilizar no servidor
+
+        -- 3. Avalia o que está realmente ao alcance (Magnitude 3D Real)
+        local naMao = {}
+        local proximaViagem = {}
+        local posAtual = hrp.Position
+
+        for _, t in ipairs(tarefasGerais) do
+            -- O servidor usa 45. Usamos 40 para ser 100% à prova de falhas.
+            if (posAtual - t.pos).Magnitude <= ALCANCE_COLETA then
+                table.insert(naMao, t)
+            else
+                table.insert(proximaViagem, t)
+            end
+        end
+
+        -- O que não alcançou, fica para o próximo voo
+        tarefasGerais = proximaViagem
+
+        -- 4. Coleta em Espiral (Aspirador Rápido)
+        if #naMao > 0 then
+            -- Ordena as plantas começando daquela que está colada aos seus pés
+            table.sort(naMao, function(a, b)
+                return (posAtual - a.pos).Magnitude < (posAtual - b.pos).Magnitude
             end)
 
-            -- Inicia a varredura espiral
-            for _, tarefa in ipairs(tarefasDestaParada) do
+            for _, tarefa in ipairs(naMao) do
                 if not State.AutoFarmingCrops then break end
                 
                 if DispararTarefa(Manager, char, tarefa) then
                     concluidas += 1
                     if Manager then
-                        Manager:AtualizarStatus(string.format("%s | %d/%d (Zona %d)", rotulo, concluidas, totalInicial, i))
+                        Manager:AtualizarStatus(string.format("%s | %d/%d (Ação rápida)", rotulo, concluidas, totalInicial))
                     end
 
-                    -- Os tempos de cooldown da UI (ex: 0.001) funcionam muito bem agora!
+                    -- Os tempos de delay rápidos da interface agora funcionam perfeitamente
                     if tarefa.acao == "Colher" then
-                        task.wait(State.FarmSettings.HarvestDelay or 0.02)
+                        task.wait(State.FarmSettings.HarvestDelay or 0.01)
                     elseif tarefa.acao == "Plantar" then
-                        task.wait(State.FarmSettings.PlantDelay or 0.05)
+                        task.wait(State.FarmSettings.PlantDelay or 0.02)
                     else
-                        task.wait(0.02)
+                        task.wait(0.01)
                     end
                 end
             end
-            
-            -- Descansa levemente antes de voar para a próxima "Casa 28"
-            task.wait(0.1)
+            task.wait(0.1) -- Pausa leve antes de reavaliar o próximo voo
         end
     end
 end
@@ -497,7 +476,7 @@ function Farmer:AlternarAutoFazenda(valor)
             end
             if not State.FarmSettings.ShowStopViz then LimparVizuParada() end
 
-            -- 1. Scanneia toda a Fazenda Verde
+            -- 1. Scanneia toda a Fazenda (com o bônus de captar o solo sozinho!)
             local scan = MapearFazenda(Scanner, Manager)
             local tarefasColheita = {}
 
@@ -517,8 +496,7 @@ function Farmer:AlternarAutoFazenda(valor)
             end
 
             if #tarefasColheita > 0 then
-                -- Chama o algoritmo mestre de Espiral + Chunking!
-                ExecutarParadasEstrategicas(Manager, char, tarefasColheita, "Coletando", Scanner)
+                ExecutarLimpezaDinamica(Manager, char, tarefasColheita, "Coletando")
                 if Manager then Manager:AtualizarStatus("Conferindo plantio novo...") end
                 task.wait(0.3)
                 continue
@@ -550,7 +528,7 @@ function Farmer:AlternarAutoFazenda(valor)
             end
 
             if #tarefasManutencao > 0 then
-                ExecutarParadasEstrategicas(Manager, char, tarefasManutencao, "Arrumando Solo", Scanner)
+                ExecutarLimpezaDinamica(Manager, char, tarefasManutencao, "Arrumando Solo")
                 if Manager then Manager:AtualizarStatus("Conferindo ciclo...") end
                 task.wait(0.3)
             else
