@@ -57,10 +57,10 @@ local function AtualizarVizuParada(posicao)
     table.insert(VizuParada, center)
 end
 
-local function PararVoo()
+local function PararVoo(limparVizu)
     if MoverConnection then MoverConnection:Disconnect(); MoverConnection = nil end
     if AntiGravity then AntiGravity:Destroy(); AntiGravity = nil end
-    LimparVizuParada()
+    if limparVizu then LimparVizuParada() end
 
     local char = LocalPlayer.Character
     if char then
@@ -93,7 +93,7 @@ local function PairarEm(posicao)
 end
 
 local function VoarParaFisico(destino, manterPairando)
-    PararVoo()
+    PararVoo(false)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChild("Humanoid")
@@ -111,7 +111,7 @@ local function VoarParaFisico(destino, manterPairando)
     local velocidade = State.FarmSettings.TweenSpeed or 25
 
     MoverConnection = RunService.Heartbeat:Connect(function(dt)
-        if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(); chegou = true return end
+        if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(true); chegou = true return end
 
         local posAtual = hrp.Position
         local dist = (destino - posAtual).Magnitude
@@ -133,7 +133,7 @@ local function VoarParaFisico(destino, manterPairando)
         return true
     end
 
-    PararVoo()
+    PararVoo(true)
     return State.AutoFarmingCrops
 end
 
@@ -177,21 +177,6 @@ end
 local function ObterNomeCultura(nome)
     local normalizado = NormalizarNome(nome)
     return normalizado ~= "" and normalizado or nil
-end
-
-local function NomeCombina(root, culturaAlvo)
-    if not culturaAlvo or culturaAlvo == "" then return true end
-    if not root then return false end
-
-    local nomeRoot = NormalizarNome(root.Name)
-    if nomeRoot:find(culturaAlvo, 1, true) then return true end
-
-    for _, desc in ipairs(root:GetDescendants()) do
-        local nomeDesc = NormalizarNome(desc.Name)
-        if nomeDesc:find(culturaAlvo, 1, true) then return true end
-    end
-
-    return false
 end
 
 local function EhSolo(nome)
@@ -478,7 +463,7 @@ function Farmer:AlternarAutoFazenda(valor)
 
     if not valor then
         if Manager then Manager:AtualizarStatus("Ocioso") end
-        PararVoo()
+        PararVoo(true)
         return
     end
 
@@ -572,7 +557,7 @@ function Farmer:AlternarAutoFazenda(valor)
             end
         end
 
-        PararVoo()
+        PararVoo(true)
         if Manager then Manager:AtualizarStatus("Auto-Fazenda Desligada") end
     end)
 end
