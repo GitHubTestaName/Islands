@@ -1,94 +1,26 @@
 -- src/actions/Farmer.lua
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
 local Farmer = {}
 local Bot = _G.IslandsBot
 local State = Bot.State
-local Config = Bot.Config
 local LocalPlayer = Players.LocalPlayer
 
--- LIMITES SEGUROS 3D 
-local ALCANCE_COLETA = 18 
-local ALTURA_PAIRANDO = 6
+local MAX_INTERACT_RANGE = 25 
+local ZONE_MAX_SIZE = 30 
+local PLACE_KEY = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU"
 
 local MoverConnection = nil
 local AntiGravity = nil
-local VizuParada = {}
+local currentHighlight = nil
+local nextHighlight = nil
 
--- ==========================================
--- 🛠️ SISTEMA DE FILA (WORKER THREAD SEGURO)
--- ==========================================
-local FilaAcoes = {}
-local EmProcessamento = {}
-local WorkerAtivo = false
-
-local function IniciarWorker(Manager)
-    if WorkerAtivo then return end
-    WorkerAtivo = true
-
-    task.spawn(function()
-        while State.AutoFarmingCrops do
-            if #FilaAcoes > 0 then
-                local tarefa = table.remove(FilaAcoes, 1)
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                
-                if hrp then
-                    local dist = (hrp.Position - tarefa.posAtual).Magnitude
-                    if dist <= ALCANCE_COLETA + 4 then 
-                        local delayAcao = 0.1
-                        
-                        if tarefa.acao == "Colher" then
-                            delayAcao = State.FarmSettings.HarvestDelay or 0.1
-                            local payload = { dZnpyRtxna = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nsDahbvdxZludavlcoipDDMYasPlcm", player = LocalPlayer, model = tarefa.obj }
-                            pcall(function() Manager.HarvestRemote:InvokeServer(payload) end)
-                            
-                        elseif tarefa.acao == "Plantar" then
-                            delayAcao = State.FarmSettings.PlantDelay or 0.15
-                            local payload = { uwhiHAMdjExWka = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU", cframe = CFrame.new(tarefa.posGrid), blockType = tarefa.semente, upperBlock = false }
-                            pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
-                        end
-                        
-                        task.wait(delayAcao) 
-                    else
-                        EmProcessamento[tarefa.key] = nil
-                    end
-                end
-            else
-                task.wait(0.1)
-            end
-        end
-        WorkerAtivo = false
-    end)
-end
-
--- ==========================================
--- ✈️ FÍSICA E VOO
--- ==========================================
-local function LimparVizuParada()
-    for _, obj in ipairs(VizuParada) do if obj then obj:Destroy() end end
-    VizuParada = {}
-end
-
-local function AtualizarVizu(posicao)
-    LimparVizuParada()
-    if not State.FarmSettings.ShowStopViz then return end
-
-    local area = Instance.new("Part")
-    area.Name = "IslandsFarm_Aura"
-    area.Shape = Enum.PartType.Cylinder
-    area.Anchored = true; area.CanCollide = false; area.CanTouch = false; area.CanQuery = false
-    area.Transparency = 0.85; area.Color = Color3.fromRGB(0, 255, 100); area.Material = Enum.Material.Neon
-    area.Size = Vector3.new(0.5, ALCANCE_COLETA * 2, ALCANCE_COLETA * 2)
-    area.CFrame = CFrame.new(posicao.X, posicao.Y - ALTURA_PAIRANDO + 0.5, posicao.Z) * CFrame.Angles(0, 0, math.rad(90))
-    area.Parent = workspace
-    table.insert(VizuParada, area)
-end
-
-local function PararVoo(limparVizu)
+local function PararVoo()
     if MoverConnection then MoverConnection:Disconnect(); MoverConnection = nil end
     if AntiGravity then AntiGravity:Destroy(); AntiGravity = nil end
-    if limparVizu then LimparVizuParada() end
 
     local char = LocalPlayer.Character
     if char then
@@ -105,7 +37,7 @@ local function PairarEm(posicao)
     local hum = char and char:FindFirstChild("Humanoid")
     if not hrp or not hum then return end
 
-    PararVoo(false)
+    PararVoo()
     hum.PlatformStand = true; hrp.Anchored = false
     hrp.CFrame = CFrame.new(posicao)
     hrp.Velocity = Vector3.zero; hrp.RotVelocity = Vector3.zero
@@ -117,7 +49,7 @@ local function PairarEm(posicao)
 end
 
 local function VoarParaFisico(destino)
-    PararVoo(false)
+    PararVoo()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChild("Humanoid")
@@ -132,7 +64,7 @@ local function VoarParaFisico(destino)
     local velocidade = State.FarmSettings.TweenSpeed or 35
 
     MoverConnection = RunService.Heartbeat:Connect(function(dt)
-        if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(true); chegou = true return end
+        if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(); chegou = true return end
 
         local posAtual = hrp.Position
         local dist = (destino - posAtual).Magnitude
@@ -153,247 +85,330 @@ local function VoarParaFisico(destino)
         task.wait(0.25)
         return true 
     end
-    PararVoo(true)
+    PararVoo()
     return false
 end
 
--- ==========================================
--- 🧠 FILTROS E UTILIDADES
--- ==========================================
-
-local function ObterPastaBlocks()
-    local islands = workspace:FindFirstChild("Islands")
-    if not islands then return nil end
-    for _, island in ipairs(islands:GetChildren()) do
-        local blocks = island:FindFirstChild("Blocks")
-        if blocks then return blocks end
+-- Busca a foice fisicamente no jogador (Ignora a dependência do Manager.lua)
+local function getSickleName()
+    local function check(folder)
+        if not folder then return nil end
+        for _, item in ipairs(folder:GetChildren()) do
+            if item:IsA("Tool") and string.match(string.lower(item.Name), "sickle") then
+                return item.Name
+            end
+        end
+        return nil
     end
-    return nil
+    return check(LocalPlayer.Character) or check(LocalPlayer:FindFirstChild("Backpack")) or "sickleStone"
 end
 
-local function ObterPosicao(root)
-    if not root then return nil end
-    if root:IsA("Model") then return root:GetPivot().Position end
-    if root:IsA("BasePart") then return root.Position end
-    return nil
+-- Assegura o remote de colheita em lote (Evita falhas caso o Manager desatualize)
+local function getSickleRemote(Manager)
+    if Manager.SickleRemote then return Manager.SickleRemote end
+    local net = game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged")
+    local remote = net:FindFirstChild("SwingSickle")
+    if remote then Manager.SickleRemote = remote end
+    return remote
 end
 
-local function CriarKey(pos)
-    return string.format("%.1f_%.1f_%.1f", pos.X, pos.Y, pos.Z)
-end
-
-local function EhSolo(nome)
-    local n = tostring(nome or ""):lower()
-    return n:find("grass") or n:find("dirt") or n:find("soil") or n:find("plowed") or n:find("farm")
-end
-
--- 🚨 A NOVA TRAVA DE LIMITES (BOUNDING BOX) 🚨
--- Garante que o Farmer vai enxergar estritamente APENAS o que está no Seletor Verde
-local function TaDentroDoSeletor(posReal, Ancora)
-    if not Ancora then return false end
-    local metadeTamanho = Ancora.Size / 2
-    local centroBox = Ancora.Position
-    -- Margem de 0.5 para não haver falhas matemáticas nas bordas dos blocos
-    return posReal.X >= (centroBox.X - metadeTamanho.X) - 0.5 and posReal.X <= (centroBox.X + metadeTamanho.X) + 0.5
-       and posReal.Y >= (centroBox.Y - metadeTamanho.Y) - 0.5 and posReal.Y <= (centroBox.Y + metadeTamanho.Y) + 0.5
-       and posReal.Z >= (centroBox.Z - metadeTamanho.Z) - 0.5 and posReal.Z <= (centroBox.Z + metadeTamanho.Z) + 0.5
-end
-
-local function EstaMadura(planta)
-    if planta:FindFirstChild("Harvestable", true) then return true end
-    local estagio = planta:FindFirstChild("stage")
-    local estagioMax = planta:FindFirstChild("maxStage")
-    if estagio and estagioMax and estagio.Value >= estagioMax.Value then return true end
-    return false
-end
-
-local function ObterSementeEmUso(Manager)
-    local prioridade = State.FarmSettings.PrioritizePlant
-    if prioridade and prioridade ~= "Nenhum" and prioridade ~= "None" then
-        return prioridade:gsub("Seeds", ""):gsub("seeds", ""):gsub("%s+", "")
-    end
-    for _, semente in ipairs(Manager:GetInventoryTools("Seed")) do
-        if semente ~= "Nenhum item encontrado" and semente ~= "None Found" then
-            if not State.SementeSelecionada or State.SementeSelecionada["All"] or State.SementeSelecionada[semente] then
-                return semente:gsub("Seeds", ""):gsub("seeds", ""):gsub("%s+", "")
+-- Sistema inteligente de sementes isolado do protótipo
+local function getInventorySeedsMap()
+    local seedCache = {}
+    local function checkFolder(folder)
+        if not folder then return end
+        for _, item in ipairs(folder:GetChildren()) do
+            if item:IsA("Tool") and item:FindFirstChild("seeds") then
+                local baseName = string.gsub(item.Name:lower(), "seeds", "")
+                baseName = string.gsub(baseName, " ", "")
+                local amountVal = item:FindFirstChild("Amount")
+                local qty = amountVal and amountVal.Value or 1
+                if seedCache[baseName] then
+                    seedCache[baseName].amount = seedCache[baseName].amount + qty
+                else
+                    seedCache[baseName] = {amount = qty, type = baseName}
+                end
             end
         end
     end
-    return nil
+    checkFolder(LocalPlayer:FindFirstChild("Backpack"))
+    checkFolder(LocalPlayer.Character)
+    return seedCache
 end
 
--- ==========================================
--- 🎯 SCANNER E PROCESSADOR DA AURA
--- ==========================================
-local function LimparAura(Manager, char, Scanner, centroAura)
-    local sementeNome = ObterSementeEmUso(Manager)
-    local pastaBlocks = ObterPastaBlocks()
-    if not pastaBlocks then return end
-
-    local params = OverlapParams.new()
-    params.FilterDescendantsInstances = { pastaBlocks }
-    params.FilterType = Enum.RaycastFilterType.Include
-
-    local boxSize = Vector3.new(ALCANCE_COLETA * 2, 20, ALCANCE_COLETA * 2)
-    local posAtualizado = CFrame.new(centroAura) * CFrame.new(0, -ALTURA_PAIRANDO, 0)
+local function generateZones(selectorPart)
+    local zones = {}
+    if not selectorPart then return zones end
+    local totalSize = selectorPart.Size; local cframe = selectorPart.CFrame
+    local baseY = cframe.Position.Y - (totalSize.Y / 2); local playerYPos = baseY + 4 
     
-    local áreaAindaTemTrabalho = true
-    local tempoOcioso = 0
-
-    while áreaAindaTemTrabalho and State.AutoFarmingCrops do
-        local blocosNaAura = workspace:GetPartBoundsInBox(posAtualizado, boxSize, params)
-        local solos = {}
-        local plantasOcupando = {}
-        local itensDescobertos = 0
-
-        for _, p in ipairs(blocosNaAura) do
-            local root = Manager:ObterBlocoRaiz(p)
-            if root and root.Name ~= "SelectionAnchor_Script" then
-                local pos = ObterPosicao(root)
-                
-                -- APENAS PROCESSA SE ESTIVER EXATAMENTE DENTRO DO SELETOR VERDE
-                if pos and TaDentroDoSeletor(pos, Scanner.AncoraPart) then
-                    if (pos - centroAura).Magnitude <= ALCANCE_COLETA then
-                        local posGrid = Scanner:AlinharParaGrid(pos)
-                        local key = CriarKey(posGrid)
-                        local nome = root.Name:lower()
-
-                        if nome ~= "trunk" and nome ~= "top" then
-                            if EhSolo(nome) then
-                                solos[key] = root
-                            else
-                                plantasOcupando[key] = true
-                                if EstaMadura(root) then
-                                    if not EmProcessamento[key] then
-                                        EmProcessamento[key] = true
-                                        table.insert(FilaAcoes, { acao = "Colher", obj = root, posAtual = pos, posGrid = posGrid, key = key })
-                                        itensDescobertos += 1
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+    local cols = math.max(1, math.ceil(totalSize.X / ZONE_MAX_SIZE))
+    local rows = math.max(1, math.ceil(totalSize.Z / ZONE_MAX_SIZE))
+    local zoneSizeX = totalSize.X / cols; local zoneSizeZ = totalSize.Z / rows
+    local startX = -totalSize.X/2 + zoneSizeX/2; local startZ = -totalSize.Z/2 + zoneSizeZ/2
+    
+    for row = 0, rows - 1 do
+        local z = startZ + (row * zoneSizeZ)
+        for col = 0, cols - 1 do
+            local x = startX + (col * zoneSizeX)
+            local centerWorldPos = cframe:PointToWorldSpace(Vector3.new(x, 0, z))
+            table.insert(zones, {
+                centerPos = Vector3.new(centerWorldPos.X, playerYPos, centerWorldPos.Z),
+                zoneSize = Vector3.new(zoneSizeX, totalSize.Y + 4, zoneSizeZ),
+                zoneCFrame = CFrame.new(centerWorldPos.X, baseY + (totalSize.Y/2), centerWorldPos.Z)
+            })
         end
+    end
+    return zones
+end
 
-        if State.FarmSettings.AutoReplace and sementeNome then
-            for keySolo, objSolo in pairs(solos) do
-                local posSoloReal = ObterPosicao(objSolo)
-                local posSoloGrid = Scanner:AlinharParaGrid(posSoloReal)
-                local posPlantaCima = posSoloGrid + Vector3.new(0, Config.BLOCK_SIZE, 0)
-                local keyPlantaCima = CriarKey(posPlantaCima)
-
-                if not plantasOcupando[keyPlantaCima] and not EmProcessamento[keyPlantaCima] then
-                    EmProcessamento[keyPlantaCima] = true
-                    table.insert(FilaAcoes, { acao = "Plantar", semente = sementeNome, posAtual = posPlantaCima, posGrid = posPlantaCima, key = keyPlantaCima })
-                    itensDescobertos += 1
-                end
-            end
-        end
-
-        if itensDescobertos == 0 and #FilaAcoes == 0 then
-            tempoOcioso += 0.2
-            if tempoOcioso >= 0.6 then 
-                áreaAindaTemTrabalho = false
-            end
-        else
-            tempoOcioso = 0
-            Manager:AtualizarStatus(string.format("Aura Ativa | Processando %d itens...", #FilaAcoes))
-        end
-
-        task.wait(0.2)
+local function sortSnakePattern(a, b)
+    local gridZa = math.round(a.pos.Z / 3); local gridZb = math.round(b.pos.Z / 3)
+    if gridZa == gridZb then
+        if math.abs(gridZa) % 2 == 0 then return a.pos.X < b.pos.X else return a.pos.X > b.pos.X end
+    else
+        return gridZa < gridZb
     end
 end
 
--- ==========================================
--- 🚜 LÓGICA DE GRADE 3D (CÉREBRO DO AUTO-FARM)
--- ==========================================
+local function scanSpecificZone(zoneData, selectorPart)
+    local matureCrops = {}; local emptySoils = {}
+    local overlapParams = OverlapParams.new()
+    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+    overlapParams.FilterDescendantsInstances = {LocalPlayer.Character, selectorPart}
+    
+    local partsInBox = Workspace:GetPartBoundsInBox(zoneData.zoneCFrame, zoneData.zoneSize, overlapParams)
+    local foundSoils = {}; local foundCropPositions = {}
+
+    for _, part in ipairs(partsInBox) do
+        if part.Name == "soil" then table.insert(foundSoils, part) end
+        
+        local cropRoot = nil
+        if part:FindFirstChild("stage") and part:FindFirstChild("Health") then cropRoot = part
+        elseif part.Parent and part.Parent:FindFirstChild("stage") and part.Parent:FindFirstChild("Health") then cropRoot = part.Parent
+        elseif part.Parent and part.Parent.Parent and part.Parent.Parent:FindFirstChild("stage") and part.Parent.Parent:FindFirstChild("Health") then cropRoot = part.Parent.Parent end
+        
+        if cropRoot and not foundCropPositions[cropRoot] then
+            foundCropPositions[cropRoot] = cropRoot:GetPivot().Position
+            local stageVal = cropRoot:FindFirstChild("stage")
+            if stageVal then
+                local stagePart = cropRoot:FindFirstChild("stage-" .. tostring(stageVal.Value))
+                if stagePart and stagePart:FindFirstChild("Harvestable") and stagePart.Harvestable.Value == true then
+                    table.insert(matureCrops, {model = cropRoot, mesh = stagePart, pos = cropRoot:GetPivot().Position})
+                end
+            end
+        end
+    end
+
+    for _, soilPart in ipairs(foundSoils) do
+        local soilTopPos = soilPart.Position + Vector3.new(0, 3, 0)
+        local hasCrop = false
+        for _, cropPos in pairs(foundCropPositions) do
+            if (cropPos - soilTopPos).Magnitude < 1.5 then hasCrop = true; break end
+        end
+        if not hasCrop then table.insert(emptySoils, {part = soilPart, pos = soilTopPos}) end
+    end
+
+    table.sort(matureCrops, sortSnakePattern); table.sort(emptySoils, sortSnakePattern)
+    return matureCrops, emptySoils
+end
+
+local function initHighlights()
+    local CoreGui = game:GetService("CoreGui")
+    if not currentHighlight then
+        currentHighlight = Instance.new("Highlight")
+        currentHighlight.Name = "FarmCurrentTarget"
+        currentHighlight.FillTransparency = 1; currentHighlight.OutlineTransparency = 0.1
+        currentHighlight.Parent = CoreGui
+    end
+    if not nextHighlight then
+        nextHighlight = Instance.new("Highlight")
+        nextHighlight.Name = "FarmNextTarget"
+        nextHighlight.FillTransparency = 1; nextHighlight.OutlineTransparency = 0.5
+        nextHighlight.Parent = CoreGui
+    end
+end
+
 function Farmer:AlternarAutoFazenda(valor)
     State.AutoFarmingCrops = valor
     local Manager = Bot.Modules.Manager
 
     if not valor then
         if Manager then Manager:AtualizarStatus("Ocioso") end
-        PararVoo(true)
-        FilaAcoes = {}
-        EmProcessamento = {}
+        PararVoo()
+        if currentHighlight then currentHighlight.Adornee = nil end
+        if nextHighlight then nextHighlight.Adornee = nil end
         return
     end
 
     local Scanner = State.ScannerFazenda
     if not Scanner or not Scanner.AncoraPart then
-        State.AutoFarmingCrops = false; return
+        State.AutoFarmingCrops = false
+        if Manager then Manager:AtualizarStatus("ERRO: Crie o seletor verde primeiro!") end
+        return
     end
 
-    IniciarWorker(Manager)
+    initHighlights()
+    Manager:AtualizarStatus("Iniciando Fazenda Inteligente (V15)...")
 
     task.spawn(function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:WaitForChild("HumanoidRootPart")
+        if not hrp then State.AutoFarmingCrops = false return end
+
         while State.AutoFarmingCrops do
-            if not Scanner.AncoraPart then break end
-            local char = LocalPlayer.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then task.wait(1) continue end
+            local delayHarvest = tonumber(State.FarmSettings.HarvestDelay) or 0.3
+            local delayPlant = tonumber(State.FarmSettings.PlantDelay) or 0.2
+            local BATCH_SIZE = 5 
+            local sickleName = getSickleName()
+            local sRemote = getSickleRemote(Manager)
 
-            FilaAcoes = {}
-            EmProcessamento = {}
-            if not State.FarmSettings.ShowStopViz then LimparVizuParada() end
+            local zones = generateZones(Scanner.AncoraPart)
+            local didAnything = false
             
-            if #Scanner.ListaBlocos == 0 then Scanner:EscanearArea() end
-            
-            local zonas = {}
-            local passoGrid = 16 
-            
-            for _, dados in ipairs(Scanner.ListaBlocos) do
-                local pos = dados.Posicao
-                local yNivel = math.floor(pos.Y / 5 + 0.5) * 5 
-                
-                local cx = math.floor(pos.X / passoGrid) * passoGrid + (passoGrid / 2)
-                local cz = math.floor(pos.Z / passoGrid) * passoGrid + (passoGrid / 2)
-                
-                local key = string.format("%.1f_%.1f_%.1f", cx, yNivel, cz)
-                
-                if not zonas[key] then
-                    zonas[key] = {
-                        centro = Vector3.new(cx, pos.Y + ALTURA_PAIRANDO, cz),
-                        Y = yNivel, X = cx, Z = cz
-                    }
-                end
-            end
-
-            local centrosAura = {}
-            for _, z in pairs(zonas) do table.insert(centrosAura, z) end
-
-            table.sort(centrosAura, function(a, b)
-                if math.abs(a.Y - b.Y) > 2 then return a.Y < b.Y end 
-                if math.abs(a.Z - b.Z) > 2 then return a.Z < b.Z end 
-                
-                local linhaIndex = math.floor(a.Z / passoGrid)
-                if linhaIndex % 2 == 0 then
-                    return a.X < b.X 
-                else
-                    return a.X > b.X 
-                end
-            end)
-
-            for i, zona in ipairs(centrosAura) do
+            for index, zone in ipairs(zones) do
                 if not State.AutoFarmingCrops then break end
                 
-                Manager:AtualizarStatus(string.format("Indo p/ Aura %d/%d (Andar %d)", i, #centrosAura, math.floor(zona.Y)))
-                AtualizarVizu(zona.centro)
-
+                Manager:AtualizarStatus(string.format("Indo para Zona %d/%d", index, #zones))
+                
                 if State.FarmSettings.TweenToTarget then
-                    VoarParaFisico(zona.centro)
+                    VoarParaFisico(zone.centerPos)
                 else
-                    PairarEm(zona.centro)
+                    PairarEm(zone.centerPos)
                 end
+                task.wait(0.3)
+                
+                -- FASE 1: COLHEITA EM LOTE
+                local failSafeLimit = 0
+                while State.AutoFarmingCrops do
+                    local matureCrops, _ = scanSpecificZone(zone, Scanner.AncoraPart)
+                    if #matureCrops == 0 then break end
+                    if failSafeLimit > 3 then break end
+                    
+                    currentHighlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                    
+                    for i = 1, #matureCrops, BATCH_SIZE do
+                        if not State.AutoFarmingCrops then break end
+                        local cropArray = {}
+                        
+                        for j = 0, BATCH_SIZE - 1 do
+                            local currentIndex = i + j
+                            if currentIndex <= #matureCrops then
+                                local cropData = matureCrops[currentIndex]
+                                if cropData.model and cropData.model.Parent then
+                                    table.insert(cropArray, cropData.model)
+                                    currentHighlight.Adornee = cropData.mesh
+                                end
+                            end
+                        end
+                        
+                        if #cropArray > 0 and sRemote then
+                            pcall(function() sRemote:InvokeServer(sickleName, cropArray) end)
+                            didAnything = true
+                            task.wait(delayHarvest)
+                        end
+                    end
+                    failSafeLimit = failSafeLimit + 1
+                    task.wait(0.5)
+                end
+                
+                -- FASE 2: PLANTIO INTELIGENTE
+                if State.FarmSettings.AutoReplace then
+                    failSafeLimit = 0
+                    while State.AutoFarmingCrops do
+                        local _, emptySoils = scanSpecificZone(zone, Scanner.AncoraPart)
+                        if #emptySoils == 0 then break end
+                        if failSafeLimit > 3 then break end
+                        
+                        local invCache = getInventorySeedsMap()
+                        currentHighlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+                        nextHighlight.OutlineColor = Color3.fromRGB(0, 0, 255)
+                        
+                        local plantedAtLeastOne = false
+                        
+                        for i = 1, #emptySoils, BATCH_SIZE do
+                            if not State.AutoFarmingCrops then break end
+                            
+                            for j = 0, BATCH_SIZE - 1 do
+                                local currentIndex = i + j
+                                if currentIndex <= #emptySoils then
+                                    local soilData = emptySoils[currentIndex]
+                                    if not soilData.part or not soilData.part.Parent then continue end
+                                    
+                                    local chosenSeed = nil
+                                    local prioSeed = State.FarmSettings.PrioritizePlant
+                                    local permittedSeeds = State.SementeSelecionada or {}
+                                    
+                                    -- Limpa nomenclaturas divergentes da UI (Trata o All)
+                                    local function cleanSeedName(name)
+                                        if not name or name == "Nenhum" or name == "None" or name == "None Found" then return nil end
+                                        local clean = string.gsub(name:lower(), "seeds", "")
+                                        return string.gsub(clean, " ", "")
+                                    end
 
-                LimparAura(Manager, char, Scanner, zona.centro)
+                                    local cleanPrio = cleanSeedName(prioSeed)
+
+                                    if cleanPrio and invCache[cleanPrio] and invCache[cleanPrio].amount > 0 then
+                                        chosenSeed = cleanPrio
+                                    else
+                                        local allowAll = permittedSeeds["All"] == true
+                                        for uiSeedName, isAllowed in pairs(permittedSeeds) do
+                                            if isAllowed and uiSeedName ~= "All" then
+                                                local cleanPerm = cleanSeedName(uiSeedName)
+                                                if cleanPerm and invCache[cleanPerm] and invCache[cleanPerm].amount > 0 then
+                                                    chosenSeed = cleanPerm; break
+                                                end
+                                            end
+                                        end
+                                        if not chosenSeed and allowAll then
+                                            for seedName, seedData in pairs(invCache) do
+                                                if seedData.amount > 0 then chosenSeed = seedName; break end
+                                            end
+                                        end
+                                    end
+                                    
+                                    if chosenSeed then
+                                        plantedAtLeastOne = true
+                                        invCache[chosenSeed].amount = invCache[chosenSeed].amount - 1 
+                                        
+                                        currentHighlight.Adornee = soilData.part
+                                        nextHighlight.Adornee = (currentIndex < #emptySoils and emptySoils[currentIndex+1].part) or nil
+                                        
+                                        local plantCFrame = CFrame.new(soilData.pos.X, soilData.pos.Y, soilData.pos.Z)
+                                        local placePayload = { uwhiHAMdjExWka = PLACE_KEY, cframe = plantCFrame, blockType = chosenSeed, upperBlock = false }
+                                        
+                                        task.spawn(function()
+                                            if Manager.PlaceRemote then pcall(function() Manager.PlaceRemote:InvokeServer(placePayload) end) end
+                                        end)
+                                    end
+                                end
+                            end
+                            if plantedAtLeastOne then 
+                                task.wait(delayPlant) 
+                                didAnything = true
+                            end
+                        end
+                        
+                        if not plantedAtLeastOne then break end
+                        failSafeLimit = failSafeLimit + 1
+                        task.wait(0.5)
+                    end
+                end
+                
+                currentHighlight.Adornee = nil; nextHighlight.Adornee = nil
             end
-
-            Manager:AtualizarStatus("Fazenda Otimizada! Aguardando Crescimento...")
-            task.wait(1.5)
+            
+            if State.AutoFarmingCrops then
+                if not didAnything then
+                    Manager:AtualizarStatus("Campo processado. Aguardando...")
+                    task.wait(3)
+                end
+            end
         end
-        PararVoo(true)
+        
+        if currentHighlight then currentHighlight.Adornee = nil end
+        if nextHighlight then nextHighlight.Adornee = nil end
+        PararVoo()
     end)
 end
 
