@@ -123,16 +123,20 @@ function Miner:ExecutarLoop()
                 local bloco = dados.Instancia
                 if not bloco or not bloco:IsDescendantOf(workspace) then continue end
 
+                -- 🚨 BACKUP DE SEGURANÇA 🚨 Abandona imediatamente se for bedrock!
+                if bloco.Name:lower():find("bedrock") then
+                    if dados.Marcador then dados.Marcador:Destroy() end
+                    continue
+                end
+
                 local tentativas = 0
                 local basePos = bloco:IsA("Model") and bloco:GetPivot().Position or bloco.Position
                 
-                -- Se tiver muito longe (ex: voo desligado e tentando bater do outro lado do mapa), evita kick.
                 if not State.MiningSettings.TweenToTarget and (hrp.Position - basePos).Magnitude > 25 then continue end
                 
                 while bloco and bloco:IsDescendantOf(workspace) do
                     if not State.Minerando then break end
                     
-                    -- Busca dinâmica por Health para modelos maiores (Slimes) ou blocos
                     local healthObj = bloco:FindFirstChild("Health") or bloco:FindFirstChild("Health", true)
                     local hpAtual = healthObj and healthObj.Value or 0
                     
@@ -146,14 +150,11 @@ function Miner:ExecutarLoop()
                         Manager:AtualizarStatus(string.format("Minerando [%d/%d] | HP: %s", i, #zonaAtual.alvos, tostring(hpAtual)))
                     end
 
-                    -- Calcula um limite de tentativas com base no seu delay para não ficar preso pra sempre
                     local delayMiner = tonumber(State.MiningSettings.HitDelay) or 0.15
                     local maxTentativas = math.max(25, (1 / delayMiner) * 4) 
                     if tentativas > maxTentativas then break end 
 
                     local hitPosition = basePos + Vector3.new(math.random(-10,10)/100, 0, math.random(-10,10)/100)
-                    
-                    -- O Remote exige que a "part" seja uma BasePart física, mas o "block" seja o Model raiz.
                     local partToHit = bloco:IsA("BasePart") and bloco or bloco:FindFirstChildWhichIsA("BasePart")
                     
                     if partToHit then
@@ -165,7 +166,6 @@ function Miner:ExecutarLoop()
                         pcall(function() Manager.HitRemote:InvokeServer(payload) end)
                     end
                     
-                    -- Protege do "Network Choking" lendo o input novo do GeralTab
                     task.wait(delayMiner) 
                 end
                 
