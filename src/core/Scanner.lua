@@ -112,7 +112,6 @@ function Scanner:EscanearArea()
     self:LimparEnumeracao()
     
     local querySize = self.AncoraPart.Size - Vector3.new(0.2, 0.2, 0.2)
-    -- Removemos a limitação de 'minhaIlha'. Agora a caixa lê TUDO que tem nela (Slimes, Hub, Madeira, etc.)
     local partsInBox = workspace:GetPartBoundsInBox(self.AncoraPart.CFrame, querySize)
     
     local blocosUnicos = {}
@@ -124,19 +123,30 @@ function Scanner:EscanearArea()
         local lowerName = part.Name:lower()
         if lowerName == "trunk" or lowerName == "top" then continue end
         
+        -- 🚨 NOVO: IGNORAR JOGADORES (E seus acessórios) 🚨
+        local eDeJogador = false
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character and part:IsDescendantOf(plr.Character) then
+                eDeJogador = true
+                break
+            end
+        end
+        if eDeJogador then continue end
+        
         local rootBlock = nil
         
-        -- LÓGICA DE DETECÇÃO DE VIDA (Permite minerar Mobs, Minérios públicos, etc)
         if part:FindFirstChild("Health") then
             rootBlock = part
         elseif part.Parent and part.Parent:FindFirstChild("Health") then
             rootBlock = part.Parent
         else
-            -- Se não tiver vida, pode ser um bloco de planta ou de construção normal
             rootBlock = Manager:ObterBlocoRaiz(part)
         end
         
         if rootBlock and not blocosUnicos[rootBlock] then
+            -- 🚨 NOVO: IGNORAR O BEDROCK 🚨
+            if rootBlock.Name:lower():find("bedrock") then continue end
+            
             blocosUnicos[rootBlock] = true
             local pos = rootBlock:IsA("Model") and rootBlock:GetPivot().Position or rootBlock.Position
             table.insert(blocosEncontrados, { Instancia = rootBlock, Posicao = pos, Nome = rootBlock.Name })
