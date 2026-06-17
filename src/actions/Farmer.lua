@@ -7,9 +7,9 @@ local State = Bot.State
 local Config = Bot.Config
 local LocalPlayer = Players.LocalPlayer
 
--- LIMITE SEGURO EXTRAÍDO DO JOGO (Máximo oficial é 20, usamos 19.5 para nunca dar flag)
-local ALCANCE_COLETA = 19.5 
-local ALTURA_PAIRANDO = 8
+-- LIMITES SEGUROS 3D 
+local ALCANCE_COLETA = 18 
+local ALTURA_PAIRANDO = 6
 
 local MoverConnection = nil
 local AntiGravity = nil
@@ -34,9 +34,8 @@ local function IniciarWorker(Manager)
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 
                 if hrp then
-                    -- Confirma a distância uma última vez (Máximo absoluto do jogo: 20 studs)
                     local dist = (hrp.Position - tarefa.posAtual).Magnitude
-                    if dist <= ALCANCE_COLETA + 2 then 
+                    if dist <= ALCANCE_COLETA + 4 then 
                         local delayAcao = 0.1
                         
                         if tarefa.acao == "Colher" then
@@ -50,8 +49,6 @@ local function IniciarWorker(Manager)
                             pcall(function() Manager.PlaceRemote:InvokeServer(payload) end)
                         end
                         
-                        -- DEFENDE CONTRA BANIMENTO: Utiliza o tempo exato definido na UI
-                        -- Garante que o servidor nunca receba 2 disparos simultâneos
                         task.wait(delayAcao) 
                     else
                         EmProcessamento[tarefa.key] = nil
@@ -163,9 +160,14 @@ end
 -- ==========================================
 -- 🧠 FILTROS E UTILIDADES
 -- ==========================================
+
 local function ObterPastaBlocks()
-    local minhaIlha = Bot.Modules.Manager:ObterMinhaIlha()
-    if minhaIlha then return minhaIlha:FindFirstChild("Blocks") end
+    local islands = workspace:FindFirstChild("Islands")
+    if not islands then return nil end
+    for _, island in ipairs(islands:GetChildren()) do
+        local blocks = island:FindFirstChild("Blocks")
+        if blocks then return blocks end
+    end
     return nil
 end
 
@@ -185,7 +187,18 @@ local function EhSolo(nome)
     return n:find("grass") or n:find("dirt") or n:find("soil") or n:find("plowed") or n:find("farm")
 end
 
--- Validação Dupla de Crescimento
+-- 🚨 A NOVA TRAVA DE LIMITES (BOUNDING BOX) 🚨
+-- Garante que o Farmer vai enxergar estritamente APENAS o que está no Seletor Verde
+local function TaDentroDoSeletor(posReal, Ancora)
+    if not Ancora then return false end
+    local metadeTamanho = Ancora.Size / 2
+    local centroBox = Ancora.Position
+    -- Margem de 0.5 para não haver falhas matemáticas nas bordas dos blocos
+    return posReal.X >= (centroBox.X - metadeTamanho.X) - 0.5 and posReal.X <= (centroBox.X + metadeTamanho.X) + 0.5
+       and posReal.Y >= (centroBox.Y - metadeTamanho.Y) - 0.5 and posReal.Y <= (centroBox.Y + metadeTamanho.Y) + 0.5
+       and posReal.Z >= (centroBox.Z - metadeTamanho.Z) - 0.5 and posReal.Z <= (centroBox.Z + metadeTamanho.Z) + 0.5
+end
+
 local function EstaMadura(planta)
     if planta:FindFirstChild("Harvestable", true) then return true end
     local estagio = planta:FindFirstChild("stage")
@@ -221,7 +234,6 @@ local function LimparAura(Manager, char, Scanner, centroAura)
     params.FilterDescendantsInstances = { pastaBlocks }
     params.FilterType = Enum.RaycastFilterType.Include
 
-    -- Raio dinâmico exato baseado no ALCANCE_COLETA
     local boxSize = Vector3.new(ALCANCE_COLETA * 2, 20, ALCANCE_COLETA * 2)
     local posAtualizado = CFrame.new(centroAura) * CFrame.new(0, -ALTURA_PAIRANDO, 0)
     
@@ -238,21 +250,25 @@ local function LimparAura(Manager, char, Scanner, centroAura)
             local root = Manager:ObterBlocoRaiz(p)
             if root and root.Name ~= "SelectionAnchor_Script" then
                 local pos = ObterPosicao(root)
-                if pos and (pos - (centroAura - Vector3.new(0, ALTURA_PAIRANDO, 0))).Magnitude <= ALCANCE_COLETA then
-                    local posGrid = Scanner:AlinharParaGrid(pos)
-                    local key = CriarKey(posGrid)
-                    local nome = root.Name:lower()
+                
+                -- APENAS PROCESSA SE ESTIVER EXATAMENTE DENTRO DO SELETOR VERDE
+                if pos and TaDentroDoSeletor(pos, Scanner.AncoraPart) then
+                    if (pos - centroAura).Magnitude <= ALCANCE_COLETA then
+                        local posGrid = Scanner:AlinharParaGrid(pos)
+                        local key = CriarKey(posGrid)
+                        local nome = root.Name:lower()
 
-                    if nome ~= "trunk" and nome ~= "top" then
-                        if EhSolo(nome) then
-                            solos[key] = root
-                        else
-                            plantasOcupando[key] = true
-                            if EstaMadura(root) then
-                                if not EmProcessamento[key] then
-                                    EmProcessamento[key] = true
-                                    table.insert(FilaAcoes, { acao = "Colher", obj = root, posAtual = pos, posGrid = posGrid, key = key })
-                                    itensDescobertos += 1
+                        if nome ~= "trunk" and nome ~= "top" then
+                            if EhSolo(nome) then
+                                solos[key] = root
+                            else
+                                plantasOcupando[key] = true
+                                if EstaMadura(root) then
+                                    if not EmProcessamento[key] then
+                                        EmProcessamento[key] = true
+                                        table.insert(FilaAcoes, { acao = "Colher", obj = root, posAtual = pos, posGrid = posGrid, key = key })
+                                        itensDescobertos += 1
+                                    end
                                 end
                             end
                         end
@@ -276,10 +292,9 @@ local function LimparAura(Manager, char, Scanner, centroAura)
             end
         end
 
-        -- Validação de área limpa quase instantânea
         if itensDescobertos == 0 and #FilaAcoes == 0 then
             tempoOcioso += 0.2
-            if tempoOcioso >= 0.6 then -- Espera só meio segundo para ir para o próximo Tween
+            if tempoOcioso >= 0.6 then 
                 áreaAindaTemTrabalho = false
             end
         else
@@ -323,17 +338,14 @@ function Farmer:AlternarAutoFazenda(valor)
             EmProcessamento = {}
             if not State.FarmSettings.ShowStopViz then LimparVizuParada() end
             
-            -- Se o player esqueceu de Escanear, garantimos a leitura atualizada
             if #Scanner.ListaBlocos == 0 then Scanner:EscanearArea() end
             
-            -- 1. Criação das Prateleiras (Chunks 3D Inteligentes)
             local zonas = {}
-            -- Um bloco seguro para a aura. Com raio de 19.5, um grid de 18x18 studs (6 blocos) garante 100% de cobertura
-            local passoGrid = 18 
+            local passoGrid = 16 
             
             for _, dados in ipairs(Scanner.ListaBlocos) do
                 local pos = dados.Posicao
-                local yNivel = math.floor(pos.Y / 5 + 0.5) * 5 -- Agrupa andares
+                local yNivel = math.floor(pos.Y / 5 + 0.5) * 5 
                 
                 local cx = math.floor(pos.X / passoGrid) * passoGrid + (passoGrid / 2)
                 local cz = math.floor(pos.Z / passoGrid) * passoGrid + (passoGrid / 2)
@@ -351,21 +363,18 @@ function Farmer:AlternarAutoFazenda(valor)
             local centrosAura = {}
             for _, z in pairs(zonas) do table.insert(centrosAura, z) end
 
-            -- 2. Ordenação Boustrophedon (Rota de Serpente Tratorizada)
             table.sort(centrosAura, function(a, b)
-                if math.abs(a.Y - b.Y) > 2 then return a.Y < b.Y end -- Sobe andares
-                if math.abs(a.Z - b.Z) > 2 then return a.Z < b.Z end -- Linhas horizontais
+                if math.abs(a.Y - b.Y) > 2 then return a.Y < b.Y end 
+                if math.abs(a.Z - b.Z) > 2 then return a.Z < b.Z end 
                 
-                -- Ziguezague
                 local linhaIndex = math.floor(a.Z / passoGrid)
                 if linhaIndex % 2 == 0 then
-                    return a.X < b.X -- Direita
+                    return a.X < b.X 
                 else
-                    return a.X > b.X -- Esquerda
+                    return a.X > b.X 
                 end
             end)
 
-            -- 3. Execução Perfeita da Rota
             for i, zona in ipairs(centrosAura) do
                 if not State.AutoFarmingCrops then break end
                 
