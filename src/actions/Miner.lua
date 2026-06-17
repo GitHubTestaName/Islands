@@ -120,10 +120,10 @@ function Miner:ExecutarLoop()
             for i, dados in ipairs(zonaAtual.alvos) do
                 if not State.Minerando then break end
 
+                -- O "bloco" aqui agora é o dono verdadeiro do Health (O Bloco X)
                 local bloco = dados.Instancia
                 if not bloco or not bloco:IsDescendantOf(workspace) then continue end
 
-                -- 🚨 BACKUP DE SEGURANÇA 🚨 Abandona imediatamente se for bedrock!
                 if bloco.Name:lower():find("bedrock") then
                     if dados.Marcador then dados.Marcador:Destroy() end
                     continue
@@ -155,15 +155,25 @@ function Miner:ExecutarLoop()
                     if tentativas > maxTentativas then break end 
 
                     local hitPosition = basePos + Vector3.new(math.random(-10,10)/100, 0, math.random(-10,10)/100)
-                    local partToHit = bloco:IsA("BasePart") and bloco or bloco:FindFirstChildWhichIsA("BasePart")
+                    
+                    -- 🚨 O GRANDE SEGREDO PARA O HUB 🚨
+                    -- O "true" faz o código vasculhar de forma infinita dentro das pastas do modelo 
+                    -- até achar a "MeshPart (0)" física para mandar no Remote!
+                    local partToHit = bloco:IsA("BasePart") and bloco or bloco:FindFirstChildWhichIsA("MeshPart", true) or bloco:FindFirstChildWhichIsA("BasePart", true)
                     
                     if partToHit then
                         local payload = {
                             Xoeoxuqilfgenamojfjmj = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy",
-                            part = partToHit, block = bloco, norm = hitPosition, pos = Vector3.new(0, 1, 0)
+                            part = partToHit, -- Envia a MeshPart (A peça que sofreu o contato)
+                            block = bloco,    -- Envia o Bloco X (O dono da vida que validamos)
+                            norm = hitPosition, 
+                            pos = Vector3.new(0, 1, 0)
                         }
 
                         pcall(function() Manager.HitRemote:InvokeServer(payload) end)
+                    else
+                        -- Se houver um bug extremo e o modelo não tiver nenhuma Part dentro dele, ele sai e não trava.
+                        break
                     end
                     
                     task.wait(delayMiner) 

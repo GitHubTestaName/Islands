@@ -106,7 +106,18 @@ function Scanner:MoverSeletor(direcao)
     self:EscanearArea()
 end
 
--- LÓGICA MUNDIAL!
+-- 🚨 FUNÇÃO ESCALADORA: Sobe os parentes do objeto até achar o "Health"
+local function EncontrarRaizComVida(obj)
+    local atual = obj
+    while atual and atual ~= workspace do
+        if atual:FindFirstChild("Health") then
+            return atual
+        end
+        atual = atual.Parent
+    end
+    return nil
+end
+
 function Scanner:EscanearArea()
     if not self.AncoraPart then return end
     self:LimparEnumeracao()
@@ -123,7 +134,6 @@ function Scanner:EscanearArea()
         local lowerName = part.Name:lower()
         if lowerName == "trunk" or lowerName == "top" then continue end
         
-        -- 🚨 NOVO: IGNORAR JOGADORES (E seus acessórios) 🚨
         local eDeJogador = false
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr.Character and part:IsDescendantOf(plr.Character) then
@@ -133,18 +143,15 @@ function Scanner:EscanearArea()
         end
         if eDeJogador then continue end
         
-        local rootBlock = nil
+        -- A MÁGICA DE HUB: Descobre quem é o Modelo Raiz de verdade
+        local rootBlock = EncontrarRaizComVida(part)
         
-        if part:FindFirstChild("Health") then
-            rootBlock = part
-        elseif part.Parent and part.Parent:FindFirstChild("Health") then
-            rootBlock = part.Parent
-        else
+        -- Se não tem Health em lugar nenhum, cai na lógica normal de blocos da ilha
+        if not rootBlock then
             rootBlock = Manager:ObterBlocoRaiz(part)
         end
         
         if rootBlock and not blocosUnicos[rootBlock] then
-            -- 🚨 NOVO: IGNORAR O BEDROCK 🚨
             if rootBlock.Name:lower():find("bedrock") then continue end
             
             blocosUnicos[rootBlock] = true
