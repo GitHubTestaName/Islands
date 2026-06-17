@@ -168,7 +168,7 @@ function Miner:ExecutarLoop()
                     pcall(function() Manager.HitRemote:InvokeServer(payload) end)
                     
                     -- DELAY CORRIGIDO PARA EVITAR PHANTOM HITS (Respeita o cooldown do jogo)
-                    task.wait(0.2) 
+                    task.wait(0.002) 
                 end
                 
                 if dados.Marcador and dados.Marcador.Parent then dados.Marcador:Destroy() end
