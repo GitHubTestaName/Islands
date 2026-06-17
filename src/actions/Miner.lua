@@ -7,7 +7,6 @@ local Bot = _G.IslandsBot
 local State = Bot.State
 local LocalPlayer = Players.LocalPlayer
 
--- Controle persistente de Voo e Colisão
 local hoverBv = nil
 local noclipConn = nil
 
@@ -40,21 +39,17 @@ end
 local function EquiparFerramenta()
     local char = LocalPlayer.Character
     if not char then return end
-    
-    -- Se já tiver uma ferramenta equipada, mantém ela
     if char:FindFirstChildWhichIsA("Tool") then return end
 
-    -- Tenta achar uma picareta, machado ou ferramenta genérica no inventário
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") and (tool.Name:lower():find("pickaxe") or tool.Name:lower():find("axe") or tool.Name:lower():find("hammer")) then
+            if tool:IsA("Tool") and (tool.Name:lower():find("pickaxe") or tool.Name:lower():find("axe") or tool.Name:lower():find("hammer") or tool.Name:lower():find("sword")) then
                 char.Humanoid:EquipTool(tool)
                 task.wait(0.2)
                 return
             end
         end
-        -- Se não achar especifica, pega a primeira
         local qualquertool = bp:FindFirstChildWhichIsA("Tool")
         if qualquertool then
             char.Humanoid:EquipTool(qualquertool)
@@ -66,14 +61,14 @@ end
 function Miner:ExecutarLoop()
     local Manager = Bot.Modules.Manager
     local Scanner = State.ScannerGeral
-    local rangeSeletor = 14 -- Raio de 7 para cada lado (Alcance do player)
+    local rangeSeletor = 14 
 
     while State.Minerando do
         if Scanner then Scanner:EscanearArea() end
         
         if not Scanner or #Scanner.ListaBlocos == 0 then
             if Manager then Manager:AtualizarStatus("Aguardando blocos...") end
-            task.wait(0.005)
+            task.wait(0.1)
             continue
         end
 
@@ -85,17 +80,14 @@ function Miner:ExecutarLoop()
 
         if State.MiningSettings.TweenToTarget then AtivarModoFantasma(char, hrp) end
 
-        -- ALGORITMO DE CLUSTER (Smart Grid)
         local zonas = {}
         for _, dados in ipairs(Scanner.ListaBlocos) do
             local pos = dados.Posicao
-            -- Agrupa num grid de 14x14
             local cx = math.floor(pos.X / rangeSeletor) * rangeSeletor + (rangeSeletor / 2)
             local cz = math.floor(pos.Z / rangeSeletor) * rangeSeletor + (rangeSeletor / 2)
             local key = string.format("%.1f_%.1f", cx, cz)
             
             if not zonas[key] then
-                -- O Y da zona será um pouco acima do bloco mais alto para o boneco pairar
                 zonas[key] = { centro = Vector3.new(cx, pos.Y + 6, cz), alvos = {} }
             end
             table.insert(zonas[key].alvos, dados)
@@ -104,16 +96,13 @@ function Miner:ExecutarLoop()
         local listaZonas = {}
         for _, z in pairs(zonas) do table.insert(listaZonas, z) end
 
-        -- O boneco vai de zona em zona
         while #listaZonas > 0 and State.Minerando do
-            -- Pega a zona mais próxima do boneco
             table.sort(listaZonas, function(a, b)
                 return (hrp.Position - a.centro).Magnitude < (hrp.Position - b.centro).Magnitude
             end)
             
             local zonaAtual = table.remove(listaZonas, 1)
 
-            -- Voa para o centro da Zona
             if State.MiningSettings.TweenToTarget then
                 local dist = (hrp.Position - zonaAtual.centro).Magnitude
                 if dist > 3 then
@@ -128,24 +117,25 @@ function Miner:ExecutarLoop()
                 end
             end
 
-            -- Fica parado no centro e destroi tudo ao redor
             for i, dados in ipairs(zonaAtual.alvos) do
                 if not State.Minerando then break end
 
                 local bloco = dados.Instancia
                 if not bloco or not bloco:IsDescendantOf(workspace) then continue end
 
-                local healthObj = bloco:FindFirstChild("Health")
                 local tentativas = 0
                 local basePos = bloco:IsA("Model") and bloco:GetPivot().Position or bloco.Position
                 
-                -- Segurança caso ele desligue o voo e esteja longe
-                if not State.MiningSettings.TweenToTarget and (hrp.Position - basePos).Magnitude > 20 then continue end
+                -- Se tiver muito longe (ex: voo desligado e tentando bater do outro lado do mapa), evita kick.
+                if not State.MiningSettings.TweenToTarget and (hrp.Position - basePos).Magnitude > 25 then continue end
                 
                 while bloco and bloco:IsDescendantOf(workspace) do
                     if not State.Minerando then break end
                     
+                    -- Busca dinâmica por Health para modelos maiores (Slimes) ou blocos
+                    local healthObj = bloco:FindFirstChild("Health") or bloco:FindFirstChild("Health", true)
                     local hpAtual = healthObj and healthObj.Value or 0
+                    
                     if healthObj and hpAtual <= 0 then 
                         if dados.Marcador then dados.Marcador:Destroy() end
                         break 
@@ -156,25 +146,33 @@ function Miner:ExecutarLoop()
                         Manager:AtualizarStatus(string.format("Minerando [%d/%d] | HP: %s", i, #zonaAtual.alvos, tostring(hpAtual)))
                     end
 
-                    -- Se tentar mais de 25 vezes (uns 5 segundos preso), ele pula pro próximo
-                    if tentativas > 25 then break end
+                    -- Calcula um limite de tentativas com base no seu delay para não ficar preso pra sempre
+                    local delayMiner = tonumber(State.MiningSettings.HitDelay) or 0.15
+                    local maxTentativas = math.max(25, (1 / delayMiner) * 4) 
+                    if tentativas > maxTentativas then break end 
 
                     local hitPosition = basePos + Vector3.new(math.random(-10,10)/100, 0, math.random(-10,10)/100)
-                    local payload = {
-                        Xoeoxuqilfgenamojfjmj = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy",
-                        part = bloco, block = bloco, norm = hitPosition, pos = Vector3.new(0, 1, 0)
-                    }
-
-                    pcall(function() Manager.HitRemote:InvokeServer(payload) end)
                     
-                    -- DELAY CORRIGIDO PARA EVITAR PHANTOM HITS (Respeita o cooldown do jogo)
-                    task.wait(0.002) 
+                    -- O Remote exige que a "part" seja uma BasePart física, mas o "block" seja o Model raiz.
+                    local partToHit = bloco:IsA("BasePart") and bloco or bloco:FindFirstChildWhichIsA("BasePart")
+                    
+                    if partToHit then
+                        local payload = {
+                            Xoeoxuqilfgenamojfjmj = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy",
+                            part = partToHit, block = bloco, norm = hitPosition, pos = Vector3.new(0, 1, 0)
+                        }
+
+                        pcall(function() Manager.HitRemote:InvokeServer(payload) end)
+                    end
+                    
+                    -- Protege do "Network Choking" lendo o input novo do GeralTab
+                    task.wait(delayMiner) 
                 end
                 
                 if dados.Marcador and dados.Marcador.Parent then dados.Marcador:Destroy() end
             end
         end
-        task.wait(0.0002)
+        task.wait(0.05)
     end
     
     DesativarModoFantasma()

@@ -25,7 +25,7 @@ function GeralTab:Construir(paginaPai)
         if Bot.Modules.Manager then DropdownBlocos:Refresh(Bot.Modules.Manager:GetInventoryTools("Block")) end 
     end)
 
-    -- ================= BLOCO 2: CONFIG & DELAY (ALTURA FIXADA EM 205) =================
+    -- ================= BLOCO 2: CONFIG & DELAY =================
     local cMinerCfg, zMinerCfg = Componentes:CriarCard("CONFIG & DELAY", paginaPai, 205)
     
     Componentes:CriarSubtitulo("Movement & Performance:", cMinerCfg, zMinerCfg)
@@ -33,13 +33,14 @@ function GeralTab:Construir(paginaPai)
     Componentes:CriarCheckboxMetade("Tween", rMinerDelay1, State.MiningSettings, "TweenToTarget", zMinerCfg)
     Componentes:CriarInputMetade("Speed:", rMinerDelay1, State.MiningSettings, "TweenSpeed", 20, zMinerCfg)
     
+    -- ADICIONADO O DELAY DE HIT!
     local rMinerDelay2 = Componentes:CriarGridDupla(cMinerCfg, zMinerCfg)
-    Componentes:CriarCheckboxMetade("Hide Numbers", rMinerDelay2, State.ScannerGeral, "HideNumbers", zMinerCfg, function()
+    Componentes:CriarInputMetade("Hit Delay:", rMinerDelay2, State.MiningSettings, "HitDelay", 0.15, zMinerCfg)
+    Componentes:CriarCheckboxMetade("Hide Nums", rMinerDelay2, State.ScannerGeral, "HideNumbers", zMinerCfg, function()
         if State.ScannerGeral and type(State.ScannerGeral.EscanearArea) == "function" then State.ScannerGeral:EscanearArea() end
     end)
 
-    -- ================= BLOCO 3: SELECTOR & SAVES (WIDTH APLICADO = 480) =================
-    -- Alteração cirúrgica: nil (para não fixar a altura), 480 (para forçar a largura)
+    -- ================= BLOCO 3: SELECTOR & SAVES =================
     local cSelAzul, zSelAzul = Componentes:CriarCard("SELECTOR & SAVES", paginaPai, nil, 480)
     
     Componentes:CriarBotaoEstilizado("👁️ Spawn Selector", cSelAzul, zSelAzul, function() 

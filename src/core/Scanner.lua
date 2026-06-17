@@ -13,7 +13,7 @@ local LocalPlayer = Players.LocalPlayer
 function Scanner.new(corCubo)
     local self = setmetatable({}, Scanner)
     self.Cor = corCubo or Color3.fromRGB(0, 150, 255)
-    self.HideNumbers = false -- CADA SCANNER TEM O SEU!
+    self.HideNumbers = false 
     self.AncoraPart = nil
     self.Handles = nil
     self.CaixaVisual = nil
@@ -106,37 +106,49 @@ function Scanner:MoverSeletor(direcao)
     self:EscanearArea()
 end
 
+-- LÓGICA MUNDIAL!
 function Scanner:EscanearArea()
     if not self.AncoraPart then return end
     self:LimparEnumeracao()
-    local minhaIlha = nil
-    for _, island in pairs(Workspace:WaitForChild("Islands"):GetChildren()) do
-        if island:FindFirstChild("Blocks") then minhaIlha = island; break end
-    end
-    if not minhaIlha then return end
-    local overlapParams = OverlapParams.new()
-    overlapParams.FilterDescendantsInstances = {minhaIlha.Blocks}
-    overlapParams.FilterType = Enum.RaycastFilterType.Include
+    
     local querySize = self.AncoraPart.Size - Vector3.new(0.2, 0.2, 0.2)
-    local partsInBox = workspace:GetPartBoundsInBox(self.AncoraPart.CFrame, querySize, overlapParams)
+    -- Removemos a limitação de 'minhaIlha'. Agora a caixa lê TUDO que tem nela (Slimes, Hub, Madeira, etc.)
+    local partsInBox = workspace:GetPartBoundsInBox(self.AncoraPart.CFrame, querySize)
+    
     local blocosUnicos = {}
     local blocosEncontrados = {}
     local Manager = Bot.Modules.Manager
+    
     for _, part in ipairs(partsInBox) do
+        if part.Name == "SelectionAnchor_Script" or part.Name == "IslandsFarm_Aura" then continue end
         local lowerName = part.Name:lower()
         if lowerName == "trunk" or lowerName == "top" then continue end
-        local rootBlock = Manager:ObterBlocoRaiz(part)
+        
+        local rootBlock = nil
+        
+        -- LÓGICA DE DETECÇÃO DE VIDA (Permite minerar Mobs, Minérios públicos, etc)
+        if part:FindFirstChild("Health") then
+            rootBlock = part
+        elseif part.Parent and part.Parent:FindFirstChild("Health") then
+            rootBlock = part.Parent
+        else
+            -- Se não tiver vida, pode ser um bloco de planta ou de construção normal
+            rootBlock = Manager:ObterBlocoRaiz(part)
+        end
+        
         if rootBlock and not blocosUnicos[rootBlock] then
             blocosUnicos[rootBlock] = true
             local pos = rootBlock:IsA("Model") and rootBlock:GetPivot().Position or rootBlock.Position
             table.insert(blocosEncontrados, { Instancia = rootBlock, Posicao = pos, Nome = rootBlock.Name })
         end
     end
+    
     table.sort(blocosEncontrados, function(a, b)
         if math.abs(a.Posicao.Y - b.Posicao.Y) > 0.5 then return a.Posicao.Y > b.Posicao.Y end
         if math.abs(a.Posicao.Z - b.Posicao.Z) > 0.5 then return a.Posicao.Z < b.Posicao.Z end
         return a.Posicao.X < b.Posicao.X
     end)
+    
     for i, dadosBloco in ipairs(blocosEncontrados) do
         local visualPart = self:CriarNumeroVisual(dadosBloco.Posicao, i)
         if visualPart then dadosBloco.Marcador = visualPart end
