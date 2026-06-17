@@ -89,7 +89,6 @@ local function VoarParaFisico(destino)
     return false
 end
 
--- Busca a foice fisicamente no jogador (Ignora a dependência do Manager.lua)
 local function getSickleName()
     local function check(folder)
         if not folder then return nil end
@@ -103,7 +102,6 @@ local function getSickleName()
     return check(LocalPlayer.Character) or check(LocalPlayer:FindFirstChild("Backpack")) or "sickleStone"
 end
 
--- Assegura o remote de colheita em lote (Evita falhas caso o Manager desatualize)
 local function getSickleRemote(Manager)
     if Manager.SickleRemote then return Manager.SickleRemote end
     local net = game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged")
@@ -112,7 +110,6 @@ local function getSickleRemote(Manager)
     return remote
 end
 
--- Sistema inteligente de sementes isolado do protótipo
 local function getInventorySeedsMap()
     local seedCache = {}
     local function checkFolder(folder)
@@ -259,7 +256,11 @@ function Farmer:AlternarAutoFazenda(valor)
         while State.AutoFarmingCrops do
             local delayHarvest = tonumber(State.FarmSettings.HarvestDelay) or 0.3
             local delayPlant = tonumber(State.FarmSettings.PlantDelay) or 0.2
-            local BATCH_SIZE = 5 
+            
+            -- Lendo os lotes da UI (Usa 5 como padrão se estiver vazio)
+            local BATCH_HARVEST = tonumber(State.FarmSettings.HarvestBatch) or 5
+            local BATCH_PLANT = tonumber(State.FarmSettings.PlantBatch) or 5
+            
             local sickleName = getSickleName()
             local sRemote = getSickleRemote(Manager)
 
@@ -278,7 +279,7 @@ function Farmer:AlternarAutoFazenda(valor)
                 end
                 task.wait(0.3)
                 
-                -- FASE 1: COLHEITA EM LOTE
+                -- FASE 1: COLHEITA EM LOTE (Usa o BATCH_HARVEST)
                 local failSafeLimit = 0
                 while State.AutoFarmingCrops do
                     local matureCrops, _ = scanSpecificZone(zone, Scanner.AncoraPart)
@@ -287,11 +288,11 @@ function Farmer:AlternarAutoFazenda(valor)
                     
                     currentHighlight.OutlineColor = Color3.fromRGB(255, 255, 0)
                     
-                    for i = 1, #matureCrops, BATCH_SIZE do
+                    for i = 1, #matureCrops, BATCH_HARVEST do
                         if not State.AutoFarmingCrops then break end
                         local cropArray = {}
                         
-                        for j = 0, BATCH_SIZE - 1 do
+                        for j = 0, BATCH_HARVEST - 1 do
                             local currentIndex = i + j
                             if currentIndex <= #matureCrops then
                                 local cropData = matureCrops[currentIndex]
@@ -312,7 +313,7 @@ function Farmer:AlternarAutoFazenda(valor)
                     task.wait(0.5)
                 end
                 
-                -- FASE 2: PLANTIO INTELIGENTE
+                -- FASE 2: PLANTIO INTELIGENTE (Usa o BATCH_PLANT)
                 if State.FarmSettings.AutoReplace then
                     failSafeLimit = 0
                     while State.AutoFarmingCrops do
@@ -326,10 +327,10 @@ function Farmer:AlternarAutoFazenda(valor)
                         
                         local plantedAtLeastOne = false
                         
-                        for i = 1, #emptySoils, BATCH_SIZE do
+                        for i = 1, #emptySoils, BATCH_PLANT do
                             if not State.AutoFarmingCrops then break end
                             
-                            for j = 0, BATCH_SIZE - 1 do
+                            for j = 0, BATCH_PLANT - 1 do
                                 local currentIndex = i + j
                                 if currentIndex <= #emptySoils then
                                     local soilData = emptySoils[currentIndex]
@@ -339,7 +340,6 @@ function Farmer:AlternarAutoFazenda(valor)
                                     local prioSeed = State.FarmSettings.PrioritizePlant
                                     local permittedSeeds = State.SementeSelecionada or {}
                                     
-                                    -- Limpa nomenclaturas divergentes da UI (Trata o All)
                                     local function cleanSeedName(name)
                                         if not name or name == "Nenhum" or name == "None" or name == "None Found" then return nil end
                                         local clean = string.gsub(name:lower(), "seeds", "")

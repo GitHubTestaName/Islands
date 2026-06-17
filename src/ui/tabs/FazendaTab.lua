@@ -38,13 +38,19 @@ function FazendaTab:Construir(paginaPai)
         end
     end)
 
-    -- ================= BLOCO 3: CONFIG & DELAY =================
+-- ================= BLOCO 3: CONFIG & DELAY =================
     local cDelay, zDelay = Componentes:CriarCard("CONFIG & DELAY", paginaPai)
     
     Componentes:CriarSubtitulo("Action Delays:", cDelay, zDelay)
     local rDelay1 = Componentes:CriarGridDupla(cDelay, zDelay)
     Componentes:CriarInputMetade("⏱️ Harvest:", rDelay1, State.FarmSettings, "HarvestDelay", 0.1, zDelay)
     Componentes:CriarInputMetade("⏱️ Plant:", rDelay1, State.FarmSettings, "PlantDelay", 0.15, zDelay)
+    
+    -- NOVOS INPUTS: Quantidade de colheita/plantio simultâneo
+    Componentes:CriarSubtitulo("Batch Size (Qtd de Lote):", cDelay, zDelay)
+    local rBatch = Componentes:CriarGridDupla(cDelay, zDelay)
+    Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
+    Componentes:CriarInputMetade("📦 Plantar:", rBatch, State.FarmSettings, "PlantBatch", 5, zDelay)
     
     Componentes:CriarSubtitulo("Movement & Performance:", cDelay, zDelay)
     local rDelay2 = Componentes:CriarGridDupla(cDelay, zDelay)
@@ -56,7 +62,7 @@ function FazendaTab:Construir(paginaPai)
     Componentes:CriarCheckboxMetade("Hide Numbers", rDelay3, State.ScannerFazenda, "HideNumbers", zDelay, function()
         if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
     end)
-
+    
     -- ================= BLOCO 4: SELECTOR & SAVES (WIDTH APLICADO = 480) =================
     -- Alteração cirúrgica: nil (para não fixar a altura), 480 (para forçar a largura)
     local cSave, zSave = Componentes:CriarCard("SELECTOR & SAVES", paginaPai, nil, 480)
