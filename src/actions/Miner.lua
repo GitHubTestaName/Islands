@@ -73,7 +73,7 @@ function Miner:ExecutarLoop()
         
         if not Scanner or #Scanner.ListaBlocos == 0 then
             if Manager then Manager:AtualizarStatus("Aguardando blocos...") end
-            task.wait(1)
+            task.wait(0.005)
             continue
         end
 
