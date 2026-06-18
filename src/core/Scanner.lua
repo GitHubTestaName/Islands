@@ -14,7 +14,6 @@ function Scanner.new(corCubo)
     local self = setmetatable({}, Scanner)
     self.Cor = corCubo or Color3.fromRGB(0, 150, 255)
     
-    -- Novas configurações Visuais
     self.HideNumbers = false 
     self.EsconderSeletor = false
     self.Transparencia = 0.7
@@ -28,15 +27,15 @@ function Scanner.new(corCubo)
     return self
 end
 
--- ==========================================
--- NOVO: ATUALIZAÇÃO VISUAL EM TEMPO REAL
--- ==========================================
 function Scanner:AtualizarVisuais()
     if self.AncoraPart then
         self.AncoraPart.Transparency = self.EsconderSeletor and 1 or self.Transparencia
     end
     if self.CaixaVisual then
         self.CaixaVisual.Visible = self.MostrarOutline
+    end
+    if self.Handles then
+        self.Handles.Visible = not self.EsconderSeletor
     end
 end
 
@@ -193,8 +192,6 @@ function Scanner:MontarCuboVisuais(posExata, tamanho)
     self.AncoraPart.CanCollide = false
     self.AncoraPart.CanQuery = false 
     self.AncoraPart.CanTouch = false
-    
-    -- Aplica as configurações do State na hora de criar
     self.AncoraPart.Transparency = self.EsconderSeletor and 1 or self.Transparencia
     self.AncoraPart.Color = self.Cor
     self.AncoraPart.Parent = Workspace
@@ -209,6 +206,7 @@ function Scanner:MontarCuboVisuais(posExata, tamanho)
     self.Handles = Instance.new("Handles")
     self.Handles.Color3 = Color3.fromRGB(255, 200, 50)
     self.Handles.Style = Enum.HandlesStyle.Resize
+    self.Handles.Visible = not self.EsconderSeletor -- Aplica o toggle inicial nas bolinhas
     self.Handles.Adornee = self.AncoraPart
     self.Handles.Parent = CoreGui
     
