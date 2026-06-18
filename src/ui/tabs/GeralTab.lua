@@ -25,8 +25,9 @@ function GeralTab:Construir(paginaPai)
         if Bot.Modules.Manager then DropdownBlocos:Refresh(Bot.Modules.Manager:GetInventoryTools("Block")) end 
     end)
 
-    -- ================= BLOCO 2: CONFIG & DELAY =================
-    local cMinerCfg, zMinerCfg = Componentes:CriarCard("CONFIG & DELAY", paginaPai, 205)
+    -- ================= BLOCO 2: CONFIG, DELAY & VISUALS =================
+    -- Removido o tamanho fixo (205) para o cartão crescer dinamicamente
+    local cMinerCfg, zMinerCfg = Componentes:CriarCard("CONFIG & DELAY", paginaPai, nil)
     
     Componentes:CriarSubtitulo("Movement & Performance:", cMinerCfg, zMinerCfg)
     local rMinerDelay1 = Componentes:CriarGridDupla(cMinerCfg, zMinerCfg)
@@ -37,6 +38,23 @@ function GeralTab:Construir(paginaPai)
     Componentes:CriarInputMetade("Hit Delay:", rMinerDelay2, State.MiningSettings, "HitDelay", 0.15, zMinerCfg)
     Componentes:CriarCheckboxMetade("Hide Nums", rMinerDelay2, State.ScannerGeral, "HideNumbers", zMinerCfg, function()
         if State.ScannerGeral and type(State.ScannerGeral.EscanearArea) == "function" then State.ScannerGeral:EscanearArea() end
+    end)
+
+    -- Visual Settings acoplado
+    Componentes:CriarSubtitulo("Visual Settings:", cMinerCfg, zMinerCfg)
+    local rVis1G = Componentes:CriarGridDupla(cMinerCfg, zMinerCfg)
+    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1G, State.ScannerGeral, "EsconderSeletor", zMinerCfg, function()
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
+    end)
+    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1G, State.ScannerGeral, "MostrarOutline", zMinerCfg, function()
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
+    end)
+    
+    local rVis2G = Componentes:CriarGridDupla(cMinerCfg, zMinerCfg)
+    local inpTransp = Componentes:CriarInputMetade("Transparência:", rVis2G, State.ScannerGeral, "Transparencia", 0.7, zMinerCfg)
+    inpTransp.FocusLost:Connect(function()
+        task.wait(0.05) -- Aguarda o componente interno salvar o valor
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
     end)
 
     -- ================= BLOCO 3: SELECTOR & SAVES =================
@@ -107,24 +125,6 @@ function GeralTab:Construir(paginaPai)
     
     local rSave2M = Componentes:CriarGridDupla(cSelAzul, zSelAzul)
     Componentes:CriarCheckboxMetade("🚀 Auto-Load", rSave2M, State.MiningSettings, "AutoUseSelectedSave", zSelAzul)
-
-    -- ================= BLOCO 4: VISUAL SETTINGS =================
-    local cVisGeral, zVisGeral = Componentes:CriarCard("VISUAL SETTINGS", paginaPai, nil)
-    
-    local rVis1G = Componentes:CriarGridDupla(cVisGeral, zVisGeral)
-    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1G, State.ScannerGeral, "EsconderSeletor", zVisGeral, function()
-        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
-    end)
-    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1G, State.ScannerGeral, "MostrarOutline", zVisGeral, function()
-        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
-    end)
-    
-    local rVis2G = Componentes:CriarGridDupla(cVisGeral, zVisGeral)
-    local inpTransp = Componentes:CriarInputMetade("Transparência:", rVis2G, State.ScannerGeral, "Transparencia", 0.7, zVisGeral)
-    inpTransp.FocusLost:Connect(function()
-        task.wait(0.05) -- Aguarda o componente interno salvar o valor
-        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
-    end)
 
     task.spawn(function()
         task.wait(1.5); pcall(function() AtualizarListaSavesMining() end)
