@@ -13,13 +13,31 @@ local LocalPlayer = Players.LocalPlayer
 function Scanner.new(corCubo)
     local self = setmetatable({}, Scanner)
     self.Cor = corCubo or Color3.fromRGB(0, 150, 255)
+    
+    -- Novas configurações Visuais
     self.HideNumbers = false 
+    self.EsconderSeletor = false
+    self.Transparencia = 0.7
+    self.MostrarOutline = true
+    
     self.AncoraPart = nil
     self.Handles = nil
     self.CaixaVisual = nil
     self.MarcadoresVisuais = {}
     self.ListaBlocos = {}
     return self
+end
+
+-- ==========================================
+-- NOVO: ATUALIZAÇÃO VISUAL EM TEMPO REAL
+-- ==========================================
+function Scanner:AtualizarVisuais()
+    if self.AncoraPart then
+        self.AncoraPart.Transparency = self.EsconderSeletor and 1 or self.Transparencia
+    end
+    if self.CaixaVisual then
+        self.CaixaVisual.Visible = self.MostrarOutline
+    end
 end
 
 function Scanner:LimparEnumeracao()
@@ -106,7 +124,6 @@ function Scanner:MoverSeletor(direcao)
     self:EscanearArea()
 end
 
--- 🚨 FUNÇÃO ESCALADORA: Sobe os parentes do objeto até achar o "Health"
 local function EncontrarRaizComVida(obj)
     local atual = obj
     while atual and atual ~= workspace do
@@ -143,17 +160,11 @@ function Scanner:EscanearArea()
         end
         if eDeJogador then continue end
         
-        -- A MÁGICA DE HUB: Descobre quem é o Modelo Raiz de verdade
         local rootBlock = EncontrarRaizComVida(part)
-        
-        -- Se não tem Health em lugar nenhum, cai na lógica normal de blocos da ilha
-        if not rootBlock then
-            rootBlock = Manager:ObterBlocoRaiz(part)
-        end
+        if not rootBlock then rootBlock = Manager:ObterBlocoRaiz(part) end
         
         if rootBlock and not blocosUnicos[rootBlock] then
             if rootBlock.Name:lower():find("bedrock") then continue end
-            
             blocosUnicos[rootBlock] = true
             local pos = rootBlock:IsA("Model") and rootBlock:GetPivot().Position or rootBlock.Position
             table.insert(blocosEncontrados, { Instancia = rootBlock, Posicao = pos, Nome = rootBlock.Name })
@@ -182,19 +193,25 @@ function Scanner:MontarCuboVisuais(posExata, tamanho)
     self.AncoraPart.CanCollide = false
     self.AncoraPart.CanQuery = false 
     self.AncoraPart.CanTouch = false
-    self.AncoraPart.Transparency = 0.7
+    
+    -- Aplica as configurações do State na hora de criar
+    self.AncoraPart.Transparency = self.EsconderSeletor and 1 or self.Transparencia
     self.AncoraPart.Color = self.Cor
     self.AncoraPart.Parent = Workspace
+    
     self.CaixaVisual = Instance.new("SelectionBox")
     self.CaixaVisual.Color3 = self.Cor
     self.CaixaVisual.LineThickness = 0.05
+    self.CaixaVisual.Visible = self.MostrarOutline
     self.CaixaVisual.Adornee = self.AncoraPart
     self.CaixaVisual.Parent = self.AncoraPart
+    
     self.Handles = Instance.new("Handles")
     self.Handles.Color3 = Color3.fromRGB(255, 200, 50)
     self.Handles.Style = Enum.HandlesStyle.Resize
     self.Handles.Adornee = self.AncoraPart
     self.Handles.Parent = CoreGui
+    
     local sizeInicial, cframeInicial
     self.Handles.MouseButton1Down:Connect(function()
         sizeInicial = self.AncoraPart.Size

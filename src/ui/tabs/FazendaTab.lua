@@ -8,7 +8,6 @@ function FazendaTab:Construir(paginaPai)
 
     Componentes:ResetOrder()
 
-    -- Definindo valores padrão seguros
     if not State.FarmSettings.FarmMode then State.FarmSettings.FarmMode = "Snake Farm" end
     if not State.FarmSettings.HarvestMethod then State.FarmSettings.HarvestMethod = "Foice-Auto" end
     if not State.FarmSettings.PlantMethod then State.FarmSettings.PlantMethod = "Plant-All" end
@@ -70,7 +69,6 @@ function FazendaTab:Construir(paginaPai)
     local inpHarv = Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
     local inpPlan = Componentes:CriarInputMetade("📦 Plantar:", rBatch, State.FarmSettings, "PlantBatch", 5, zDelay)
     
-    -- TRAVAMENTO VISUAL DOS INPUTS
     task.spawn(function()
         while task.wait(0.2) do
             if State.FarmSettings.HarvestMethod == "Foice-Auto" then
@@ -165,6 +163,24 @@ function FazendaTab:Construir(paginaPai)
     
     local rSave2F = Componentes:CriarGridDupla(cSave, zSave)
     Componentes:CriarCheckboxMetade("🚀 Auto-Load", rSave2F, State.FarmSettings, "AutoUseSelectedSave", zSave)
+
+    -- ================= BLOCO 6: VISUAL SETTINGS =================
+    local cVisFaz, zVisFaz = Componentes:CriarCard("VISUAL SETTINGS", paginaPai, nil)
+    
+    local rVis1F = Componentes:CriarGridDupla(cVisFaz, zVisFaz)
+    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1F, State.ScannerFazenda, "EsconderSeletor", zVisFaz, function()
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
+    end)
+    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1F, State.ScannerFazenda, "MostrarOutline", zVisFaz, function()
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
+    end)
+    
+    local rVis2F = Componentes:CriarGridDupla(cVisFaz, zVisFaz)
+    local inpTranspF = Componentes:CriarInputMetade("Transparência:", rVis2F, State.ScannerFazenda, "Transparencia", 0.7, zVisFaz)
+    inpTranspF.FocusLost:Connect(function()
+        task.wait(0.05) -- Aguarda o componente interno salvar o valor
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
+    end)
 
     task.spawn(function()
         task.wait(1.5); pcall(function() AtualizarListaSavesFazenda() end)

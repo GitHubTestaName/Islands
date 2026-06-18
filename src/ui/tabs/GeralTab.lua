@@ -33,7 +33,6 @@ function GeralTab:Construir(paginaPai)
     Componentes:CriarCheckboxMetade("Tween", rMinerDelay1, State.MiningSettings, "TweenToTarget", zMinerCfg)
     Componentes:CriarInputMetade("Speed:", rMinerDelay1, State.MiningSettings, "TweenSpeed", 20, zMinerCfg)
     
-    -- ADICIONADO O DELAY DE HIT!
     local rMinerDelay2 = Componentes:CriarGridDupla(cMinerCfg, zMinerCfg)
     Componentes:CriarInputMetade("Hit Delay:", rMinerDelay2, State.MiningSettings, "HitDelay", 0.15, zMinerCfg)
     Componentes:CriarCheckboxMetade("Hide Nums", rMinerDelay2, State.ScannerGeral, "HideNumbers", zMinerCfg, function()
@@ -108,6 +107,24 @@ function GeralTab:Construir(paginaPai)
     
     local rSave2M = Componentes:CriarGridDupla(cSelAzul, zSelAzul)
     Componentes:CriarCheckboxMetade("🚀 Auto-Load", rSave2M, State.MiningSettings, "AutoUseSelectedSave", zSelAzul)
+
+    -- ================= BLOCO 4: VISUAL SETTINGS =================
+    local cVisGeral, zVisGeral = Componentes:CriarCard("VISUAL SETTINGS", paginaPai, nil)
+    
+    local rVis1G = Componentes:CriarGridDupla(cVisGeral, zVisGeral)
+    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1G, State.ScannerGeral, "EsconderSeletor", zVisGeral, function()
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
+    end)
+    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1G, State.ScannerGeral, "MostrarOutline", zVisGeral, function()
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
+    end)
+    
+    local rVis2G = Componentes:CriarGridDupla(cVisGeral, zVisGeral)
+    local inpTransp = Componentes:CriarInputMetade("Transparência:", rVis2G, State.ScannerGeral, "Transparencia", 0.7, zVisGeral)
+    inpTransp.FocusLost:Connect(function()
+        task.wait(0.05) -- Aguarda o componente interno salvar o valor
+        if State.ScannerGeral then State.ScannerGeral:AtualizarVisuais() end
+    end)
 
     task.spawn(function()
         task.wait(1.5); pcall(function() AtualizarListaSavesMining() end)
