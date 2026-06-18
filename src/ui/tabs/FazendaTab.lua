@@ -56,7 +56,7 @@ function FazendaTab:Construir(paginaPai)
         end
     end)
 
-    -- ================= BLOCO 4: CONFIG & DELAY =================
+    -- ================= BLOCO 4: CONFIG, DELAY & VISUALS =================
     local cDelay, zDelay = Componentes:CriarCard("CONFIG & DELAY", paginaPai)
     
     Componentes:CriarSubtitulo("Action Delays:", cDelay, zDelay)
@@ -93,6 +93,23 @@ function FazendaTab:Construir(paginaPai)
     local rDelay3 = Componentes:CriarGridDupla(cDelay, zDelay)
     Componentes:CriarCheckboxMetade("Hide Numbers", rDelay3, State.ScannerFazenda, "HideNumbers", zDelay, function()
         if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
+    end)
+
+    -- Visual Settings acoplado
+    Componentes:CriarSubtitulo("Visual Settings:", cDelay, zDelay)
+    local rVis1F = Componentes:CriarGridDupla(cDelay, zDelay)
+    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1F, State.ScannerFazenda, "EsconderSeletor", zDelay, function()
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
+    end)
+    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1F, State.ScannerFazenda, "MostrarOutline", zDelay, function()
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
+    end)
+    
+    local rVis2F = Componentes:CriarGridDupla(cDelay, zDelay)
+    local inpTranspF = Componentes:CriarInputMetade("Transparência:", rVis2F, State.ScannerFazenda, "Transparencia", 0.7, zDelay)
+    inpTranspF.FocusLost:Connect(function()
+        task.wait(0.05) -- Aguarda o componente interno salvar o valor
+        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
     end)
     
     -- ================= BLOCO 5: SELECTOR & SAVES =================
@@ -163,24 +180,6 @@ function FazendaTab:Construir(paginaPai)
     
     local rSave2F = Componentes:CriarGridDupla(cSave, zSave)
     Componentes:CriarCheckboxMetade("🚀 Auto-Load", rSave2F, State.FarmSettings, "AutoUseSelectedSave", zSave)
-
-    -- ================= BLOCO 6: VISUAL SETTINGS =================
-    local cVisFaz, zVisFaz = Componentes:CriarCard("VISUAL SETTINGS", paginaPai, nil)
-    
-    local rVis1F = Componentes:CriarGridDupla(cVisFaz, zVisFaz)
-    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1F, State.ScannerFazenda, "EsconderSeletor", zVisFaz, function()
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
-    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1F, State.ScannerFazenda, "MostrarOutline", zVisFaz, function()
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
-    
-    local rVis2F = Componentes:CriarGridDupla(cVisFaz, zVisFaz)
-    local inpTranspF = Componentes:CriarInputMetade("Transparência:", rVis2F, State.ScannerFazenda, "Transparencia", 0.7, zVisFaz)
-    inpTranspF.FocusLost:Connect(function()
-        task.wait(0.05) -- Aguarda o componente interno salvar o valor
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
 
     task.spawn(function()
         task.wait(1.5); pcall(function() AtualizarListaSavesFazenda() end)
