@@ -9,7 +9,6 @@ local Bot = _G.IslandsBot
 local State = Bot.State
 local LocalPlayer = Players.LocalPlayer
 
-local MAX_INTERACT_RANGE = 25 
 local ZONE_MAX_SIZE = 30 
 local PLACE_KEY = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nffEgdldU"
 
@@ -61,7 +60,7 @@ local function VoarParaFisico(destino)
     AntiGravity.Velocity = Vector3.zero; AntiGravity.Parent = hrp
 
     local chegou = false
-    local velocidade = State.FarmSettings.TweenSpeed or 35
+    local velocidade = State.FarmSettings.TweenSpeed or 30
 
     MoverConnection = RunService.Heartbeat:Connect(function(dt)
         if not State.AutoFarmingCrops or not hrp.Parent then PararVoo(); chegou = true return end
@@ -82,7 +81,7 @@ local function VoarParaFisico(destino)
 
     if State.AutoFarmingCrops then 
         PairarEm(destino)
-        task.wait(0.25)
+        task.wait(0.2)
         return true 
     end
     PararVoo()
@@ -168,20 +167,21 @@ local function sortSnakePattern(a, b)
     end
 end
 
--- RETORNA: matureCrops, emptySoils, plowableBlocks, growingCropsCount
+-- RETORNA: matureCrops, emptySoils, plowableBlocks, growingCrops
 local function scanSpecificZone(zoneData, selectorPart)
-    local matureCrops = {}; local emptySoils = {}; local plowableBlocks = {}
-    local growingCropsCount = 0
+    local matureCrops = {}; local emptySoils = {}; local plowableBlocks = {}; local growingCrops = {}
     
     local overlapParams = OverlapParams.new()
     overlapParams.FilterType = Enum.RaycastFilterType.Exclude
     overlapParams.FilterDescendantsInstances = {LocalPlayer.Character, selectorPart}
     
-    local partsInBox = Workspace:GetPartBoundsInBox(zoneData.zoneCFrame, zoneData.zoneSize, overlapParams)
+    -- Correção: Encolhe a query para não plantar nas bordas vizinhas fora do seletor
+    local safeSize = zoneData.zoneSize - Vector3.new(0.2, 0.2, 0.2)
+    local partsInBox = Workspace:GetPartBoundsInBox(zoneData.zoneCFrame, safeSize, overlapParams)
+    
     local foundSoils = {}; local foundCropPositions = {}
 
     for _, part in ipairs(partsInBox) do
-        -- Terra ou Grama detectada para Aração
         if (part.Name == "grass" or part.Name == "dirt") and State.FarmSettings.PlowGrass then
             table.insert(plowableBlocks, {part = part, pos = part.Position + Vector3.new(0, 3, 0)})
         elseif part.Name == "soil" then 
@@ -201,7 +201,7 @@ local function scanSpecificZone(zoneData, selectorPart)
                 if stagePart and stagePart:FindFirstChild("Harvestable") and stagePart.Harvestable.Value == true then
                     table.insert(matureCrops, {model = cropRoot, mesh = stagePart, pos = cropRoot:GetPivot().Position})
                 else
-                    growingCropsCount = growingCropsCount + 1
+                    table.insert(growingCrops, {model = cropRoot, pos = cropRoot:GetPivot().Position})
                 end
             end
         end
@@ -220,7 +220,42 @@ local function scanSpecificZone(zoneData, selectorPart)
     table.sort(emptySoils, sortSnakePattern)
     table.sort(plowableBlocks, sortSnakePattern)
     
-    return matureCrops, emptySoils, plowableBlocks, growingCropsCount
+    return matureCrops, emptySoils, plowableBlocks, growingCrops
+end
+
+-- Novo Roteador Dinâmico Avançado
+local function GetActiveZones(Scanner)
+    local rawZones = generateZones(Scanner.AncoraPart)
+    local filteredZones = {}
+    
+    for _, z in ipairs(rawZones) do
+        if State.FarmSettings.SmartRouting then
+            local mCrops, eSoils, pBlocks, gCrops = scanSpecificZone(z, Scanner.AncoraPart)
+            local totalTargets = 0
+            local sumPos = Vector3.new(0,0,0)
+            
+            local function aggregate(arr)
+                for _, item in ipairs(arr) do
+                    sumPos = sumPos + item.pos
+                    totalTargets = totalTargets + 1
+                end
+            end
+            
+            aggregate(mCrops)
+            aggregate(gCrops)
+            if State.FarmSettings.PlowGrass then aggregate(pBlocks) end
+            if State.FarmSettings.FillEmptySoils then aggregate(eSoils) end
+            
+            if totalTargets > 0 then
+                local avg = sumPos / totalTargets
+                z.centerPos = Vector3.new(avg.X, z.centerPos.Y, avg.Z)
+                table.insert(filteredZones, z)
+            end
+        else
+            table.insert(filteredZones, z)
+        end
+    end
+    return filteredZones
 end
 
 local function initHighlights()
@@ -259,7 +294,7 @@ function Farmer:AlternarAutoFazenda(valor)
     end
 
     initHighlights()
-    Manager:AtualizarStatus("Iniciando Modo Mestre V16...")
+    Manager:AtualizarStatus("Iniciando Modo Mestre V17...")
 
     task.spawn(function()
         local char = LocalPlayer.Character
@@ -269,18 +304,16 @@ function Farmer:AlternarAutoFazenda(valor)
         local currentIndex = 1
 
         while State.AutoFarmingCrops do
-            local delayHarvest = tonumber(State.FarmSettings.HarvestDelay) or 0.3
-            local delayPlant = tonumber(State.FarmSettings.PlantDelay) or 0.2
-            local BATCH_HARVEST = tonumber(State.FarmSettings.HarvestBatch) or 5
-            local BATCH_PLANT = tonumber(State.FarmSettings.PlantBatch) or 5
+            local delayHarvest = tonumber(State.FarmSettings.HarvestDelay) or 0.1
+            local delayPlant = tonumber(State.FarmSettings.PlantDelay) or 0.05
             
             local sickleName = getSickleName()
             local sRemote = getSickleRemote(Manager)
             local pRemote = Manager.PlowRemote or game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):FindFirstChild("CLIENT_PLOW_BLOCK_REQUEST")
 
-            local zones = generateZones(Scanner.AncoraPart)
+            local zones = GetActiveZones(Scanner)
             if #zones == 0 then
-                Manager:AtualizarStatus("Nenhuma zona detectada.")
+                Manager:AtualizarStatus("Nenhum alvo válido na área.")
                 task.wait(1)
                 continue
             end
@@ -295,50 +328,35 @@ function Farmer:AlternarAutoFazenda(valor)
                 local minDist = math.huge
                 for i, z in ipairs(zones) do
                     local mCrops, eSoils, pBlocks, gCrops = scanSpecificZone(z, Scanner.AncoraPart)
-                    local needsAction = (#mCrops > 0) or (#eSoils > 0 and State.FarmSettings.AutoReplace) or (#pBlocks > 0 and State.FarmSettings.PlowGrass)
+                    local needsAction = (#mCrops > 0) or (#eSoils > 0 and State.FarmSettings.FillEmptySoils) or (#pBlocks > 0 and State.FarmSettings.PlowGrass)
                     if needsAction then
                         local dist = (hrp.Position - z.centerPos).Magnitude
                         if dist < minDist then
-                            minDist = dist
-                            nearestZone = z
+                            minDist = dist; nearestZone = z
                         end
                     end
                 end
                 zoneToProcess = nearestZone
-                if not zoneToProcess then
-                    Manager:AtualizarStatus("Tudo limpo. Procurando Plot Próximo...")
-                    task.wait(2)
-                    continue
-                end
+                if not zoneToProcess then Manager:AtualizarStatus("Aguardando próximo plot..."); task.wait(2); continue end
 
             elseif mode == "Only Fully Growth Plot" then
                 for i, z in ipairs(zones) do
                     local mCrops, eSoils, pBlocks, gCrops = scanSpecificZone(z, Scanner.AncoraPart)
-                    local needsAction = (#mCrops > 0 and gCrops == 0) or (#eSoils > 0 and State.FarmSettings.AutoReplace) or (#pBlocks > 0 and State.FarmSettings.PlowGrass)
-                    if needsAction then
-                        zoneToProcess = z
-                        break
-                    end
+                    local needsAction = (#mCrops > 0 and #gCrops == 0) or (#eSoils > 0 and State.FarmSettings.FillEmptySoils) or (#pBlocks > 0 and State.FarmSettings.PlowGrass)
+                    if needsAction then zoneToProcess = z; break end
                 end
-                if not zoneToProcess then
-                    Manager:AtualizarStatus("Nenhum plot 100% maduro. Aguardando...")
-                    task.wait(2)
-                    continue
-                end
+                if not zoneToProcess then Manager:AtualizarStatus("Aguardando cultivo total..."); task.wait(2); continue end
 
             elseif mode == "Wait First Plot" then
                 if currentIndex > #zones then
-                    Manager:AtualizarStatus("Aguardando Primeiro Plot Crescer...")
+                    Manager:AtualizarStatus("Aguardando Primeiro Plot...")
                     local firstZ = zones[1]
                     if State.FarmSettings.TweenToTarget then VoarParaFisico(firstZ.centerPos) else PairarEm(firstZ.centerPos) end
                     
                     local ready = false
                     while State.AutoFarmingCrops do
-                        local mCrops, eSoils, pBlocks, gCrops = scanSpecificZone(firstZ, Scanner.AncoraPart)
-                        if gCrops == 0 then
-                            ready = true
-                            break
-                        end
+                        local _, _, _, gCrops = scanSpecificZone(firstZ, Scanner.AncoraPart)
+                        if #gCrops == 0 then ready = true; break end
                         task.wait(2)
                     end
                     if ready then currentIndex = 1 end
@@ -349,12 +367,7 @@ function Farmer:AlternarAutoFazenda(valor)
                 end
 
             else -- "Snake Farm" (Padrão)
-                if currentIndex > #zones then
-                    currentIndex = 1
-                    Manager:AtualizarStatus("Ciclo Completo. Reiniciando...")
-                    task.wait(1)
-                    continue
-                end
+                if currentIndex > #zones then currentIndex = 1; task.wait(1); continue end
                 zoneToProcess = zones[currentIndex]
                 currentIndex = currentIndex + 1
             end
@@ -362,11 +375,11 @@ function Farmer:AlternarAutoFazenda(valor)
             if not zoneToProcess then continue end
 
             -- Ir fisicamente para o Plot Escolhido
-            Manager:AtualizarStatus(string.format("Processando Plot (%s)", mode))
+            Manager:AtualizarStatus(string.format("Processando (%s)", mode))
             if State.FarmSettings.TweenToTarget then VoarParaFisico(zoneToProcess.centerPos) else PairarEm(zoneToProcess.centerPos) end
-            task.wait(0.3)
+            task.wait(0.15) -- Estabilidade de rede
             
-            -- ================= FASE 1: COLHEITA EM LOTE =================
+            -- ================= FASE 1: COLHEITA INTELIGENTE =================
             local failSafeLimit = 0
             while State.AutoFarmingCrops do
                 local matureCrops, _, _, _ = scanSpecificZone(zoneToProcess, Scanner.AncoraPart)
@@ -375,11 +388,15 @@ function Farmer:AlternarAutoFazenda(valor)
                 
                 currentHighlight.OutlineColor = Color3.fromRGB(255, 255, 0)
                 
-                for i = 1, #matureCrops, BATCH_HARVEST do
+                -- Se Auto for verdadeiro, varre TUDO. Se não, usa o lote da UI.
+                local stepValue = (State.FarmSettings.HarvestMethod == "Foice-Auto") and #matureCrops or (tonumber(State.FarmSettings.HarvestBatch) or 5)
+                if stepValue <= 0 then stepValue = 1 end
+                
+                for i = 1, #matureCrops, stepValue do
                     if not State.AutoFarmingCrops then break end
                     local cropArray = {}
                     
-                    for j = 0, BATCH_HARVEST - 1 do
+                    for j = 0, stepValue - 1 do
                         local cIndex = i + j
                         if cIndex <= #matureCrops then
                             local cropData = matureCrops[cIndex]
@@ -397,7 +414,7 @@ function Farmer:AlternarAutoFazenda(valor)
                     end
                 end
                 failSafeLimit = failSafeLimit + 1
-                task.wait(0.5)
+                task.wait(0.2)
             end
             
             -- ================= FASE 1.5: ARAÇÃO (AUTO-PLOW) =================
@@ -409,12 +426,14 @@ function Farmer:AlternarAutoFazenda(valor)
                     if failSafeLimit > 3 then break end
                     
                     currentHighlight.OutlineColor = Color3.fromRGB(139, 69, 19)
-                    local plowedAtLeastOne = false
+                    local stepValue = (State.FarmSettings.PlantMethod == "Plant-All") and #pBlocks or (tonumber(State.FarmSettings.PlantBatch) or 5)
+                    if stepValue <= 0 then stepValue = 1 end
                     
-                    for i = 1, #pBlocks, BATCH_PLANT do
+                    local plowedAtLeastOne = false
+                    for i = 1, #pBlocks, stepValue do
                         if not State.AutoFarmingCrops then break end
                         
-                        for j = 0, BATCH_PLANT - 1 do
+                        for j = 0, stepValue - 1 do
                             local pIndex = i + j
                             if pIndex <= #pBlocks then
                                 local blockData = pBlocks[pIndex]
@@ -435,12 +454,12 @@ function Farmer:AlternarAutoFazenda(valor)
                     
                     if not plowedAtLeastOne then break end
                     failSafeLimit = failSafeLimit + 1
-                    task.wait(0.5)
+                    task.wait(0.2)
                 end
             end
             
-            -- ================= FASE 2: PLANTIO INTELIGENTE =================
-            if State.FarmSettings.AutoReplace then
+            -- ================= FASE 2: PLANTIO INTELIGENTE (ALL OU EACH) =================
+            if State.FarmSettings.FillEmptySoils then
                 failSafeLimit = 0
                 while State.AutoFarmingCrops do
                     local _, emptySoils, _, _ = scanSpecificZone(zoneToProcess, Scanner.AncoraPart)
@@ -451,12 +470,16 @@ function Farmer:AlternarAutoFazenda(valor)
                     currentHighlight.OutlineColor = Color3.fromRGB(0, 255, 0)
                     nextHighlight.OutlineColor = Color3.fromRGB(0, 0, 255)
                     
+                    -- Avalia se deve estourar o lote inteiro ("Plant-All") ou ir com limite
+                    local stepValue = (State.FarmSettings.PlantMethod == "Plant-All") and #emptySoils or (tonumber(State.FarmSettings.PlantBatch) or 5)
+                    if stepValue <= 0 then stepValue = 1 end
+                    
                     local plantedAtLeastOne = false
                     
-                    for i = 1, #emptySoils, BATCH_PLANT do
+                    for i = 1, #emptySoils, stepValue do
                         if not State.AutoFarmingCrops then break end
                         
-                        for j = 0, BATCH_PLANT - 1 do
+                        for j = 0, stepValue - 1 do
                             local eIndex = i + j
                             if eIndex <= #emptySoils then
                                 local soilData = emptySoils[eIndex]
@@ -517,7 +540,7 @@ function Farmer:AlternarAutoFazenda(valor)
                     
                     if not plantedAtLeastOne then break end
                     failSafeLimit = failSafeLimit + 1
-                    task.wait(0.5)
+                    task.wait(0.2)
                 end
             end
             

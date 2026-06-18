@@ -8,6 +8,13 @@ function FazendaTab:Construir(paginaPai)
 
     Componentes:ResetOrder()
 
+    -- Definindo valores padrão seguros
+    if not State.FarmSettings.FarmMode then State.FarmSettings.FarmMode = "Snake Farm" end
+    if not State.FarmSettings.HarvestMethod then State.FarmSettings.HarvestMethod = "Foice-Auto" end
+    if not State.FarmSettings.PlantMethod then State.FarmSettings.PlantMethod = "Plant-All" end
+    if State.FarmSettings.SmartRouting == nil then State.FarmSettings.SmartRouting = true end
+    if State.FarmSettings.FillEmptySoils == nil then State.FarmSettings.FillEmptySoils = true end
+
     -- ================= BLOCO 1: MAIN FARM =================
     local cFarm, zFarm = Componentes:CriarCard("MAIN FARM", paginaPai)
     
@@ -15,25 +22,33 @@ function FazendaTab:Construir(paginaPai)
         if Bot.Modules.Farmer then Bot.Modules.Farmer:AlternarAutoFazenda(v) end 
     end)
     
-    if not State.FarmSettings.FarmMode then State.FarmSettings.FarmMode = "Snake Farm" end
-    local DropdownModo = Componentes:CriarDropdown("🔄 Farm Mode", cFarm, State.FarmSettings, "FarmMode", false, zFarm, false)
+    local DropdownModo = Componentes:CriarDropdown("🔄 Rota Principal", cFarm, State.FarmSettings, "FarmMode", false, zFarm, false)
     DropdownModo:Refresh({"Snake Farm", "Wait First Plot", "Nearest Plot", "Only Fully Growth Plot"})
     
-    Componentes:CriarSubtitulo("Soil Settings:", cFarm, zFarm)
+    Componentes:CriarSubtitulo("Configurações do Solo:", cFarm, zFarm)
     local rFarm1 = Componentes:CriarGridDupla(cFarm, zFarm)
-    Componentes:CriarCheckboxMetade("🚜 Plow Grass", rFarm1, State.FarmSettings, "PlowGrass", zFarm)
-    Componentes:CriarCheckboxMetade("🌱 Place Grass", rFarm1, State.FarmSettings, "PlaceGrass", zFarm)
+    Componentes:CriarCheckboxMetade("🚜 Arar Grama", rFarm1, State.FarmSettings, "PlowGrass", zFarm)
+    Componentes:CriarCheckboxMetade("🌱 Preencher Vazios", rFarm1, State.FarmSettings, "FillEmptySoils", zFarm)
     
     local rFarm2 = Componentes:CriarGridDupla(cFarm, zFarm)
-    Componentes:CriarCheckboxMetade("♻️ Auto Replace", rFarm2, State.FarmSettings, "AutoReplace", zFarm)
+    Componentes:CriarCheckboxMetade("📍 Rota Dinâmica", rFarm2, State.FarmSettings, "SmartRouting", zFarm)
 
-    -- ================= BLOCO 2: SEEDS =================
+    -- ================= BLOCO 2: MÉTODOS DE AÇÃO =================
+    local cAdv, zAdv = Componentes:CriarCard("ADVANCED METHODS", paginaPai)
+    
+    local DropHarvMode = Componentes:CriarDropdown("🔪 Harvest Mode", cAdv, State.FarmSettings, "HarvestMethod", false, zAdv, false)
+    DropHarvMode:Refresh({"Foice-Auto", "Foice-Batch"})
+    
+    local DropPlanMode = Componentes:CriarDropdown("🌱 Plant Mode", cAdv, State.FarmSettings, "PlantMethod", false, zAdv, false)
+    DropPlanMode:Refresh({"Plant-All", "Plant-Batch"})
+
+    -- ================= BLOCO 3: SEEDS =================
     local cSeed, zSeed = Componentes:CriarCard("SEEDS", paginaPai)
     
-    local DropdownSementes = Componentes:CriarDropdown("🎒 Inventory", cSeed, State, "SementeSelecionada", true, zSeed, true)
-    local PriorizeDropdown = Componentes:CriarDropdown("🌍 Priorize", cSeed, State.FarmSettings, "PrioritizePlant", false, zSeed, true)
+    local DropdownSementes = Componentes:CriarDropdown("🎒 Permitidas", cSeed, State, "SementeSelecionada", true, zSeed, true)
+    local PriorizeDropdown = Componentes:CriarDropdown("🌍 Prioridade", cSeed, State.FarmSettings, "PrioritizePlant", false, zSeed, true)
     
-    Componentes:CriarBotaoEstilizado("🔄 Sync", cSeed, zSeed, function()
+    Componentes:CriarBotaoEstilizado("🔄 Sincronizar", cSeed, zSeed, function()
         if Bot.Modules.Manager then 
             pcall(function()
                 DropdownSementes:Refresh(Bot.Modules.Manager:GetInventoryTools("Seed"))
@@ -42,31 +57,47 @@ function FazendaTab:Construir(paginaPai)
         end
     end)
 
--- ================= BLOCO 3: CONFIG & DELAY =================
+    -- ================= BLOCO 4: CONFIG & DELAY =================
     local cDelay, zDelay = Componentes:CriarCard("CONFIG & DELAY", paginaPai)
     
     Componentes:CriarSubtitulo("Action Delays:", cDelay, zDelay)
     local rDelay1 = Componentes:CriarGridDupla(cDelay, zDelay)
     Componentes:CriarInputMetade("⏱️ Harvest:", rDelay1, State.FarmSettings, "HarvestDelay", 0.1, zDelay)
-    Componentes:CriarInputMetade("⏱️ Plant:", rDelay1, State.FarmSettings, "PlantDelay", 0.15, zDelay)
+    Componentes:CriarInputMetade("⏱️ Plant:", rDelay1, State.FarmSettings, "PlantDelay", 0.05, zDelay)
     
-    Componentes:CriarSubtitulo("Batch Size (Qtd de Lote):", cDelay, zDelay)
+    Componentes:CriarSubtitulo("Batch Size (Lotes):", cDelay, zDelay)
     local rBatch = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
-    Componentes:CriarInputMetade("📦 Plantar:", rBatch, State.FarmSettings, "PlantBatch", 5, zDelay)
+    local inpHarv = Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
+    local inpPlan = Componentes:CriarInputMetade("📦 Plantar:", rBatch, State.FarmSettings, "PlantBatch", 5, zDelay)
+    
+    -- TRAVAMENTO VISUAL DOS INPUTS
+    task.spawn(function()
+        while task.wait(0.2) do
+            if State.FarmSettings.HarvestMethod == "Foice-Auto" then
+                inpHarv.TextEditable = false; inpHarv.BackgroundColor3 = Color3.fromRGB(30, 30, 30); inpHarv.TextColor3 = Color3.fromRGB(100, 100, 100)
+            else
+                inpHarv.TextEditable = true; inpHarv.BackgroundColor3 = Componentes.Theme.InputBG; inpHarv.TextColor3 = Componentes.Theme.AccentBlue
+            end
+
+            if State.FarmSettings.PlantMethod == "Plant-All" then
+                inpPlan.TextEditable = false; inpPlan.BackgroundColor3 = Color3.fromRGB(30, 30, 30); inpPlan.TextColor3 = Color3.fromRGB(100, 100, 100)
+            else
+                inpPlan.TextEditable = true; inpPlan.BackgroundColor3 = Componentes.Theme.InputBG; inpPlan.TextColor3 = Componentes.Theme.AccentBlue
+            end
+        end
+    end)
     
     Componentes:CriarSubtitulo("Movement & Performance:", cDelay, zDelay)
     local rDelay2 = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarCheckboxMetade("✈️ Smooth Flight", rDelay2, State.FarmSettings, "TweenToTarget", zDelay)
-    Componentes:CriarInputMetade("💨 Speed:", rDelay2, State.FarmSettings, "TweenSpeed", 20, zDelay)
+    Componentes:CriarCheckboxMetade("✈️ Tween", rDelay2, State.FarmSettings, "TweenToTarget", zDelay)
+    Componentes:CriarInputMetade("💨 Speed:", rDelay2, State.FarmSettings, "TweenSpeed", 30, zDelay)
     
     local rDelay3 = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarCheckboxMetade("Vizu Parada", rDelay3, State.FarmSettings, "ShowStopViz", zDelay)
     Componentes:CriarCheckboxMetade("Hide Numbers", rDelay3, State.ScannerFazenda, "HideNumbers", zDelay, function()
         if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
     end)
     
-    -- ================= BLOCO 4: SELECTOR & SAVES =================
+    -- ================= BLOCO 5: SELECTOR & SAVES =================
     local cSave, zSave = Componentes:CriarCard("SELECTOR & SAVES", paginaPai, nil, 480)
     
     Componentes:CriarBotaoEstilizado("👁️ Spawn Selector", cSave, zSave, function() 
