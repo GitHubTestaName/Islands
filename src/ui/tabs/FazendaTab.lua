@@ -15,6 +15,10 @@ function FazendaTab:Construir(paginaPai)
         if Bot.Modules.Farmer then Bot.Modules.Farmer:AlternarAutoFazenda(v) end 
     end)
     
+    if not State.FarmSettings.FarmMode then State.FarmSettings.FarmMode = "Snake Farm" end
+    local DropdownModo = Componentes:CriarDropdown("🔄 Farm Mode", cFarm, State.FarmSettings, "FarmMode", false, zFarm, false)
+    DropdownModo:Refresh({"Snake Farm", "Wait First Plot", "Nearest Plot", "Only Fully Growth Plot"})
+    
     Componentes:CriarSubtitulo("Soil Settings:", cFarm, zFarm)
     local rFarm1 = Componentes:CriarGridDupla(cFarm, zFarm)
     Componentes:CriarCheckboxMetade("🚜 Plow Grass", rFarm1, State.FarmSettings, "PlowGrass", zFarm)
@@ -46,7 +50,6 @@ function FazendaTab:Construir(paginaPai)
     Componentes:CriarInputMetade("⏱️ Harvest:", rDelay1, State.FarmSettings, "HarvestDelay", 0.1, zDelay)
     Componentes:CriarInputMetade("⏱️ Plant:", rDelay1, State.FarmSettings, "PlantDelay", 0.15, zDelay)
     
-    -- NOVOS INPUTS: Quantidade de colheita/plantio simultâneo
     Componentes:CriarSubtitulo("Batch Size (Qtd de Lote):", cDelay, zDelay)
     local rBatch = Componentes:CriarGridDupla(cDelay, zDelay)
     Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
@@ -63,8 +66,7 @@ function FazendaTab:Construir(paginaPai)
         if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
     end)
     
-    -- ================= BLOCO 4: SELECTOR & SAVES (WIDTH APLICADO = 480) =================
-    -- Alteração cirúrgica: nil (para não fixar a altura), 480 (para forçar a largura)
+    -- ================= BLOCO 4: SELECTOR & SAVES =================
     local cSave, zSave = Componentes:CriarCard("SELECTOR & SAVES", paginaPai, nil, 480)
     
     Componentes:CriarBotaoEstilizado("👁️ Spawn Selector", cSave, zSave, function() 
