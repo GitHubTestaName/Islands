@@ -25,10 +25,16 @@ function SistemaTab:Construir(paginaPai)
     Componentes:CriarBotaoEstilizado("❌ Fechar Bot de Forma Segura", cSys, zSys, function()
         if Bot.Modules.Miner then Bot.Modules.Miner:Alternar(false) end
         if Bot.Modules.Farmer then Bot.Modules.Farmer:AlternarAutoFazenda(false) end
+        if Bot.Modules.WildMiner then Bot.Modules.WildMiner:LimparTudo() end -- LIMPA O WILD!
         if State.ScannerGeral then State.ScannerGeral:LimparAncora() end
         if State.ScannerFazenda then State.ScannerFazenda:LimparAncora() end
-        if game:GetService("CoreGui"):FindFirstChild("IslandsCustomUI") then
-            game:GetService("CoreGui").IslandsCustomUI:Destroy()
+        
+        -- Destrói a pasta de ESPs global
+        local TargetUI = pcall(function() return game:GetService("CoreGui").Name end) and game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+        if TargetUI:FindFirstChild("WildernessEsp") then TargetUI.WildernessEsp:Destroy() end
+
+        if TargetUI:FindFirstChild("IslandsCustomUI") then
+            TargetUI.IslandsCustomUI:Destroy()
         end
     end)
 end

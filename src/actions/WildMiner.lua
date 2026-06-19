@@ -32,7 +32,6 @@ function WildMiner:MapearMundo()
     self.CachePortais = {}
     local WildernessBlocks = Workspace:FindFirstChild("WildernessBlocks")
     
-    -- Portais da Base e do Hub
     local attrId = LocalPlayer:GetAttribute("OwnedIslandsID")
     if attrId then
         local myIslandPortal = Workspace:FindFirstChild("Islands") 
@@ -82,7 +81,6 @@ function WildMiner:MapearMundo()
             end
         end
     end
-    if Bot.Modules.Manager then Bot.Modules.Manager:AtualizarStatus("Mundo Wild Mapeado.") end
 end
 
 function WildMiner:GetIlhasDisponiveis()
@@ -290,6 +288,17 @@ function WildMiner:BotMinerLoop()
     if Manager then Manager:AtualizarStatus("Wild Miner Ocioso") end
 end
 
+-- Limpeza 100% segura para quando o painel for fechado
+function WildMiner:LimparTudo()
+    local State = Bot.State
+    State.WildSettings.IsMining = false
+    if self.ActiveTween then self.ActiveTween:Cancel(); self.ActiveTween = nil end
+    local charEnd = LocalPlayer.Character
+    local hrpEnd = charEnd and charEnd:FindFirstChild("HumanoidRootPart")
+    if hrpEnd and hrpEnd:FindFirstChild("BotHoverVel") then hrpEnd.BotHoverVel:Destroy() end
+    if EspFolder then EspFolder:ClearAllChildren() end
+end
+
 function WildMiner:Alternar(valor)
     local State = Bot.State
     State.WildSettings.IsMining = valor
@@ -299,10 +308,7 @@ function WildMiner:Alternar(valor)
         if Bot.Modules.Farmer then Bot.Modules.Farmer:AlternarAutoFazenda(false) end
         task.spawn(function() self:BotMinerLoop() end)
     else
-        if self.ActiveTween then self.ActiveTween:Cancel(); self.ActiveTween = nil end
-        local charEnd = LocalPlayer.Character
-        local hrpEnd = charEnd and charEnd:FindFirstChild("HumanoidRootPart")
-        if hrpEnd and hrpEnd:FindFirstChild("BotHoverVel") then hrpEnd.BotHoverVel:Destroy() end
+        self:LimparTudo()
     end
 end
 
