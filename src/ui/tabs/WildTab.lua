@@ -12,6 +12,7 @@ function WildTab:Construir(paginaPai)
     State.WildSettings = State.WildSettings or {
         IsMining = false,
         SelectedIsland = "Nenhum",
+        SelectedPortal = "Nenhum",
         SelectedBlocks = {},
         HitCooldown = 0.15,
         TweenSpeed = 30,
@@ -19,31 +20,34 @@ function WildTab:Construir(paginaPai)
         EspSpecific = false
     }
 
+    WildMiner:MapearMundo() -- Mapeamento base para evitar listas vazias
+
     -- ================= BLOCO 1: MAPEAMENTO E ILHA =================
-    local cMap, zMap = Componentes:CriarCard("MAPEAMENTO DE ZONAS", paginaPai)
+    local cMap, zMap = Componentes:CriarCard("ZONAS DE MINERAÇÃO", paginaPai)
     
     local dropIlha = Componentes:CriarDropdown("▼ Selecionar Ilha", cMap, State.WildSettings, "SelectedIsland", false, zMap, false)
+    if dropIlha then dropIlha:Refresh(WildMiner:GetIlhasDisponiveis()) end
     
-    Componentes:CriarBotaoEstilizado("❌ Desmarcar Todos", cMap, zMap, function()
+    Componentes:CriarBotaoEstilizado("❌ Desmarcar Todos (Limpar Fila)", cMap, zMap, function()
         State.WildSettings.SelectedBlocks = {}
         WildMiner:AtualizarESP()
     end)
 
-    -- ================= BLOCO 2: LISTA DE MINÉRIOS (Z-INDEX FIX) =================
-    local cMin, zMin = Componentes:CriarCard("MINÉRIOS DISPONÍVEIS", paginaPai, 250)
-    -- Elevando a ordem global do painel direito
-    cMin.ZIndex = 10 
+    -- ================= BLOCO 2: LISTA DE MINÉRIOS (Z-INDEX & COLAPSO FIX) =================
+    local cMin, zMin = Componentes:CriarCard("MINÉRIOS DISPONÍVEIS", paginaPai)
     
+    -- SOLUÇÃO DA LISTA INVISÍVEL: A altura deve ser fixa em PIXELS (ex: 220), senão a engine colapsa para 0 de tamanho!
     local scrollBlocks = Instance.new("ScrollingFrame", cMin)
-    scrollBlocks.Size = UDim2.new(0.95, 0, 1, -10)
-    scrollBlocks.Position = UDim2.new(0.025, 0, 0, 5)
+    scrollBlocks.Size = UDim2.new(0.95, 0, 0, 220) 
+    scrollBlocks.Position = UDim2.new(0.025, 0, 0, 0)
     scrollBlocks.BackgroundTransparency = 1
     scrollBlocks.ScrollBarThickness = 4
-    scrollBlocks.ZIndex = 15 -- Z-Index mais alto para ficar acima do fundo
+    scrollBlocks.ZIndex = zMin + 1
+    scrollBlocks.LayoutOrder = Componentes:GetInnerOrder()
     
     local scrollLayout = Instance.new("UIListLayout", scrollBlocks)
     scrollLayout.Padding = UDim.new(0, 3)
-    scrollLayout.SortOrder = Enum.SortOrder.Name
+    scrollLayout.SortOrder = Enum.SortOrder.Name -- Respeita nossa numeração de forma perfeita
 
     local function PopulateBlockList(islandCat)
         for _, child in ipairs(scrollBlocks:GetChildren()) do
@@ -69,7 +73,7 @@ function WildTab:Construir(paginaPai)
             header.Text = " -- " .. subRegName .. " --"
             header.TextColor3 = Color3.fromRGB(0, 180, 255); header.Font = Enum.Font.SourceSansBold
             header.TextSize = 13; header.TextXAlignment = Enum.TextXAlignment.Center
-            header.ZIndex = 20 -- FORÇANDO NA FRENTE DE TUDO!
+            header.ZIndex = zMin + 2
             Instance.new("UICorner", header).CornerRadius = UDim.new(0, 4)
             totalY = totalY + 25
 
@@ -82,7 +86,7 @@ function WildTab:Construir(paginaPai)
                 local btn = Instance.new("TextButton", scrollBlocks)
                 btn.Name = GetNextOrder() .. "_Item"
                 btn.Size = UDim2.new(1, 0, 0, 25)
-                btn.ZIndex = 20 -- FORÇANDO NA FRENTE DE TUDO!
+                btn.ZIndex = zMin + 2
                 
                 local isSelected = State.WildSettings.SelectedBlocks[key]
                 btn.BackgroundColor3 = isSelected and Componentes.Theme.ToggleOn or Componentes.Theme.ButtonBG
@@ -111,83 +115,91 @@ function WildTab:Construir(paginaPai)
     end
 
     -- ================= BLOCO 3: CONFIG & ESP =================
-    local cCfg, zCfg = Componentes:CriarCard("CONFIG & ESP", paginaPai)
+    local cCfg, zCfg = Componentes:CriarCard("CONFIGURAÇÕES DE AÇÃO", paginaPai)
     
     local rCfg1 = Componentes:CriarGridDupla(cCfg, zCfg)
-    Componentes:CriarInputMetade("Hit Delay:", rCfg1, State.WildSettings, "HitCooldown", 0.15, zCfg)
-    Componentes:CriarInputMetade("Speed:", rCfg1, State.WildSettings, "TweenSpeed", 30, zCfg)
+    Componentes:CriarInputMetade("Hit Delay:", rCfg1, State.WildSettings, "HitCooldown", "0.15", zCfg)
+    Componentes:CriarInputMetade("Veloc. Voo:", rCfg1, State.WildSettings, "TweenSpeed", "30", zCfg)
 
     local rCfg2 = Componentes:CriarGridDupla(cCfg, zCfg)
-    Componentes:CriarCheckboxMetade("ESP Geral", rCfg2, State.WildSettings, "EspGeral", zCfg, function() WildMiner:AtualizarESP() end)
+    Componentes:CriarCheckboxMetade("ESP Ilha", rCfg2, State.WildSettings, "EspGeral", zCfg, function() WildMiner:AtualizarESP() end)
     Componentes:CriarCheckboxMetade("ESP Alvos", rCfg2, State.WildSettings, "EspSpecific", zCfg, function() WildMiner:AtualizarESP() end)
 
     -- ================= BLOCO 4: PORTAIS =================
-    local cPort, zPort = Componentes:CriarCard("TELEPORTES INTELIGENTES", paginaPai)
-    local dropPortal = Componentes:CriarDropdown("▼ Escolher Portal", cPort, State.WildSettings, "SelectedPortal", false, zPort, false)
+    local cPort, zPort = Componentes:CriarCard("TELEPORTE INSTANTÂNEO", paginaPai)
+    local dropPortal = Componentes:CriarDropdown("▼ Clique p/ Teleportar...", cPort, State.WildSettings, "SelectedPortal", false, zPort, false)
+    if dropPortal then dropPortal:Refresh(WildMiner:GetPortaisDisponiveis()) end
 
-    -- ================= BLOCO 5: RUN =================
+    -- ================= BLOCO 5: MOTOR =================
     local cRun, zRun = Componentes:CriarCard("MOTOR PRINCIPAL", paginaPai)
     Componentes:CriarToggleLargo("Ativar Wild Miner", cRun, State.WildSettings, "IsMining", zRun, function(v)
         WildMiner:Alternar(v)
     end)
 
-    -- ================= AUTO-UPDATE & LISTENERS =================
-    -- Pega os botões nativos do componente Dropdown (que você já construiu no Components.lua)
-    local dFrameIsland = cMap:FindFirstChild("DropdownContainer_SelectedIsland")
-    if dFrameIsland then
-        local trigBtn = dFrameIsland:FindFirstChild("TriggerButton")
-        if trigBtn then
-            -- MÁGICA: Atualiza o mundo instantes antes de o dropdown do Components.lua abrir a lista!
-            trigBtn.MouseButton1Click:Connect(function()
-                WildMiner:MapearMundo()
-                dropIlha:Refresh(WildMiner:GetIlhasDisponiveis())
-            end)
-        end
-    end
-
-    local dFramePortal = cPort:FindFirstChild("DropdownContainer_SelectedPortal")
-    if dFramePortal then
-        local trigPBtn = dFramePortal:FindFirstChild("TriggerButton")
-        if trigPBtn then
-            trigPBtn.MouseButton1Click:Connect(function()
-                WildMiner:MapearMundo()
-                dropPortal:Refresh(WildMiner:GetPortaisDisponiveis())
-            end)
-        end
-        
-        -- Event listener pro teleporte 1-Click
-        local menuPanel = dFramePortal:FindFirstChild("MenuListPanel")
-        if menuPanel then
-            local pScroll = menuPanel:FindFirstChild("Scroller")
-            if pScroll then
-                pScroll.ChildAdded:Connect(function(child)
-                    if child:IsA("TextButton") then
-                        child.MouseButton1Click:Connect(function()
-                            -- Extrai o nome do portal do texto (tirando espaços iniciais que o Component usa)
-                            local destName = string.gsub(child.Text, "^%s+", "")
-                            if destName ~= "None Found" then
-                                WildMiner:UsarPortal(destName)
-                            end
-                        end)
-                    end
-                end)
+    -- ================= AUTO-UPDATE (SEGUNDO PLANO) E EVENTOS =================
+    
+    local screenGui = paginaPai:FindFirstAncestorWhichIsA("ScreenGui")
+    
+    -- Vigilante: Se o script ou a interface for fechado de forma forçada, ele varre as caixas ESP do mapa.
+    task.spawn(function()
+        while task.wait(0.5) do
+            if not screenGui or not screenGui.Parent then
+                WildMiner:LimparTudo()
+                break
             end
         end
-    end
+    end)
 
-    -- Escutador de Mudança de Ilha para Renderizar a Lista da Direita
-    local ultimaIlha = nil
+    -- Scanner Automático e Silencioso (Substitui o botão de sincronizar)
     task.spawn(function()
-        while task.wait(0.2) do
+        while task.wait(2) do
+            if not screenGui or not screenGui.Parent then break end
+            
+            if not State.WildSettings.IsMining then
+                WildMiner:MapearMundo()
+                if dropIlha and type(dropIlha.Refresh) == "function" then
+                    dropIlha:Refresh(WildMiner:GetIlhasDisponiveis())
+                end
+                if dropPortal and type(dropPortal.Refresh) == "function" then
+                    dropPortal:Refresh(WildMiner:GetPortaisDisponiveis())
+                end
+            end
+        end
+    end)
+
+    -- Escutador Instântaneo de Ações nos Dropdowns (Zero Lag)
+    local ultimaIlha = State.WildSettings.SelectedIsland
+    local ultimoPortal = State.WildSettings.SelectedPortal
+    
+    task.spawn(function()
+        while task.wait(0.1) do
+            if not screenGui or not screenGui.Parent then break end
+            
+            -- Renderiza blocos quando a ilha troca
             if State.WildSettings.SelectedIsland ~= ultimaIlha then
                 ultimaIlha = State.WildSettings.SelectedIsland
                 PopulateBlockList(ultimaIlha)
                 WildMiner:AtualizarESP()
             end
+            
+            -- Dispara Teleporte automaticamente quando clica na lista
+            if State.WildSettings.SelectedPortal ~= ultimoPortal then
+                ultimoPortal = State.WildSettings.SelectedPortal
+                if ultimoPortal and ultimoPortal ~= "Nenhum" then
+                    WildMiner:UsarPortal(ultimoPortal)
+                    
+                    -- Reseta o Dropdown para o título padrão instantaneamente
+                    State.WildSettings.SelectedPortal = "Nenhum"
+                    ultimoPortal = "Nenhum"
+                    if dropPortal and type(dropPortal.Refresh) == "function" then
+                        dropPortal:Refresh(WildMiner:GetPortaisDisponiveis())
+                    end
+                end
+            end
         end
     end)
-    
-    local btnDesmarcar = cMap:FindFirstChild("Button_❌ Desmarcar Todos")
+
+    local btnDesmarcar = cMap:FindFirstChild("Button_❌ Desmarcar Todos (Limpar Fila)")
     if btnDesmarcar then
         btnDesmarcar.MouseButton1Click:Connect(function() PopulateBlockList(ultimaIlha) end)
     end

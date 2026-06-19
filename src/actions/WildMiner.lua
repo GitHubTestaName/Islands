@@ -13,9 +13,14 @@ local WildMiner = {
 
 local Bot = _G.IslandsBot
 local LocalPlayer = Players.LocalPlayer
-local TargetUI = pcall(function() return game:GetService("CoreGui").Name end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
-local EspFolder = TargetUI:FindFirstChild("WildernessEsp") or Instance.new("Folder", TargetUI)
-EspFolder.Name = "WildernessEsp"
+
+-- Obtém ou cria a pasta de ESP
+local function GetEspFolder()
+    local cg = pcall(function() return game:GetService("CoreGui").Name end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+    local folder = cg:FindFirstChild("WildernessEsp") or Instance.new("Folder", cg)
+    folder.Name = "WildernessEsp"
+    return folder
+end
 
 local HIT_KEY = "\a\240\159\164\163\240\159\164\161\a\n\a\n\a\nohIstskUiftvgjy"
 
@@ -98,8 +103,10 @@ function WildMiner:GetPortaisDisponiveis()
 end
 
 function WildMiner:AtualizarESP()
-    EspFolder:ClearAllChildren()
+    local folder = GetEspFolder()
+    folder:ClearAllChildren()
     local State = Bot.State
+    if not State.WildSettings then return end
     
     for islandCat, subRegions in pairs(self.CacheBlocos) do
         for subRegName, blocksMap in pairs(subRegions) do
@@ -115,7 +122,7 @@ function WildMiner:AtualizarESP()
                             hl.FillTransparency = 0.8; hl.OutlineTransparency = 0
                             hl.FillColor = isTargetBlock and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(150, 150, 150)
                             hl.OutlineColor = isTargetBlock and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 200, 200)
-                            hl.Parent = EspFolder
+                            hl.Parent = folder
 
                             local basePart = block:IsA("Model") and block.PrimaryPart or block:FindFirstChildWhichIsA("BasePart", true) or block
                             if basePart then
@@ -128,7 +135,7 @@ function WildMiner:AtualizarESP()
                                 txt.Text = blockName
                                 txt.TextColor3 = isTargetBlock and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 255, 255)
                                 txt.Font = Enum.Font.SourceSansBold; txt.TextSize = 14; txt.TextStrokeTransparency = 0 
-                                txt.Parent = bb; bb.Parent = EspFolder
+                                txt.Parent = bb; bb.Parent = folder
                             end
                         end
                     end
@@ -147,7 +154,7 @@ function WildMiner:UsarPortal(destName)
     if not hrp then return end
 
     local State = Bot.State
-    State.WildSettings.IsMining = false
+    if State.WildSettings then State.WildSettings.IsMining = false end
     if self.ActiveTween then self.ActiveTween:Cancel(); self.ActiveTween = nil end
     
     local targetPart = nil
@@ -288,15 +295,21 @@ function WildMiner:BotMinerLoop()
     if Manager then Manager:AtualizarStatus("Wild Miner Ocioso") end
 end
 
--- Limpeza 100% segura para quando o painel for fechado
+-- Limpeza Nuclear para fechamento seguro da GUI
 function WildMiner:LimparTudo()
     local State = Bot.State
-    State.WildSettings.IsMining = false
+    if State.WildSettings then State.WildSettings.IsMining = false end
     if self.ActiveTween then self.ActiveTween:Cancel(); self.ActiveTween = nil end
+    
     local charEnd = LocalPlayer.Character
     local hrpEnd = charEnd and charEnd:FindFirstChild("HumanoidRootPart")
     if hrpEnd and hrpEnd:FindFirstChild("BotHoverVel") then hrpEnd.BotHoverVel:Destroy() end
-    if EspFolder then EspFolder:ClearAllChildren() end
+    
+    -- Busca e destrói de TODAS as camadas da interface
+    local cg = pcall(function() return game:GetService("CoreGui").Name end) and game:GetService("CoreGui")
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if cg and cg:FindFirstChild("WildernessEsp") then cg.WildernessEsp:Destroy() end
+    if pg and pg:FindFirstChild("WildernessEsp") then pg.WildernessEsp:Destroy() end
 end
 
 function WildMiner:Alternar(valor)
