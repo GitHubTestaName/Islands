@@ -194,12 +194,15 @@ function UI:CriarAba(nome, id)
         end
     end)
     
+    
+
     return pg
 end
 
 -- ================= INICIALIZAÇÃO DE GAVETAS (TABS) =================
 local pageGeral = UI:CriarAba("Geral (Azul)", "seletor")
 local pageFazenda = UI:CriarAba("Fazenda (Verde)", "fazenda")
+local pageWild = UI:CriarAba("Wild Mine (Global)", "wild") -- <--- ADICIONE ESTA LINHA!
 local pageSistema = UI:CriarAba("Sistema", "sistema")
 
 -- Ativa a Fazenda por padrão
@@ -212,7 +215,7 @@ Paginas["fazenda"].Visible = true
 task.spawn(function()
     if Bot.Modules.GeralTab then Bot.Modules.GeralTab:Construir(pageGeral) end
     if Bot.Modules.FazendaTab then Bot.Modules.FazendaTab:Construir(pageFazenda) end
+    if Bot.Modules.WildTab then Bot.Modules.WildTab:Construir(pageWild) end -- <--- ADICIONE ESTA LINHA!
     if Bot.Modules.SistemaTab then Bot.Modules.SistemaTab:Construir(pageSistema) end
 end)
-
 return UI

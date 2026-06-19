@@ -82,6 +82,7 @@ local function carregarModulo(caminho)
 end
 
 -- A NOSSA NOVA ORDEM PROFISSIONAL (Carrega a Arquitetura da UI primeiro)
+-- A NOSSA NOVA ORDEM PROFISSIONAL (Carrega a Arquitetura da UI primeiro)
 local modulosParaCarregar = {
     {nome = "Manager", caminho = "src/core/Manager.lua"},
     {nome = "PlotManager", caminho = "src/core/PlotManager.lua"},
@@ -89,9 +90,11 @@ local modulosParaCarregar = {
     {nome = "Miner", caminho = "src/actions/Miner.lua"},
     {nome = "Builder", caminho = "src/actions/Builder.lua"},
     {nome = "Farmer", caminho = "src/actions/Farmer.lua"},
+    {nome = "WildMiner", caminho = "src/actions/WildMiner.lua"}, -- NOVO MOTOR ADICIONADO!
     {nome = "UIComponents", caminho = "src/ui/Components.lua"},
     {nome = "GeralTab", caminho = "src/ui/tabs/GeralTab.lua"},
     {nome = "FazendaTab", caminho = "src/ui/tabs/FazendaTab.lua"},
+    {nome = "WildTab", caminho = "src/ui/tabs/WildTab.lua"},    -- NOVA ABA ADICIONADA!
     {nome = "SistemaTab", caminho = "src/ui/tabs/SistemaTab.lua"},
     {nome = "UI", caminho = "src/ui/Window.lua"}
 }
