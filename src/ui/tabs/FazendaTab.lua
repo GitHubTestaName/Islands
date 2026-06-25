@@ -8,187 +8,230 @@ function FazendaTab:Construir(paginaPai)
 
     Componentes:ResetOrder()
 
-    if not State.FarmSettings.FarmMode then State.FarmSettings.FarmMode = "Snake Farm" end
-    if not State.FarmSettings.HarvestMethod then State.FarmSettings.HarvestMethod = "Foice-Auto" end
-    if not State.FarmSettings.PlantMethod then State.FarmSettings.PlantMethod = "Plant-All" end
-    if State.FarmSettings.SmartRouting == nil then State.FarmSettings.SmartRouting = true end
-    if State.FarmSettings.FillEmptySoils == nil then State.FarmSettings.FillEmptySoils = true end
+    -- Inicializa variáveis V16
+    State.FarmSettings = State.FarmSettings or {}
+    State.FarmSettings.HarvestDelay = State.FarmSettings.HarvestDelay or 0.3
+    State.FarmSettings.PlantDelay = State.FarmSettings.PlantDelay or 0.2
+    State.FarmSettings.BatchSize = State.FarmSettings.BatchSize or 5
+    State.FarmSettings.SickleName = State.FarmSettings.SickleName or "sickleStone"
+    if State.FarmSettings.EnablePlanting == nil then State.FarmSettings.EnablePlanting = true end
+    State.FarmSettings.PrioritySeed = State.FarmSettings.PrioritySeed or "None"
+    State.FarmSettings.PermittedSeeds = State.FarmSettings.PermittedSeeds or {}
+    State.FarmSettings.CurrentSaveName = State.FarmSettings.CurrentSaveName or "None"
 
-    -- ================= BLOCO 1: MAIN FARM =================
-    local cFarm, zFarm = Componentes:CriarCard("MAIN FARM", paginaPai)
-    
-    Componentes:CriarToggleLargo("▶ Auto-Farm", cFarm, State, "AutoFarmingCrops", zFarm, function(v) 
+    -- ================= NOVO SISTEMA DE LAYOUT SEGURO (SEM QUEBRAR O RESTO) =================
+    -- A largura padrão usada no seu projeto é ~480. Vamos dividir em duas colunas de 235px.
+
+    -- 1. LINHA SUPERIOR (Vai conter a Coluna Esquerda e Direita)
+    local LinhaTopo = Instance.new("Frame", paginaPai)
+    LinhaTopo.Name = "Fazenda_LinhaTopo"
+    LinhaTopo.Size = UDim2.new(0, 480, 0, 300) 
+    LinhaTopo.BackgroundTransparency = 1
+    LinhaTopo.LayoutOrder = Componentes:GetInnerOrder()
+
+    local ColunaEsq = Instance.new("Frame", LinhaTopo)
+    ColunaEsq.Size = UDim2.new(0, 235, 1, 0)
+    ColunaEsq.BackgroundTransparency = 1
+    local LayoutEsq = Instance.new("UIListLayout", ColunaEsq)
+    LayoutEsq.SortOrder = Enum.SortOrder.LayoutOrder
+    LayoutEsq.Padding = UDim.new(0, 10)
+
+    local ColunaDir = Instance.new("Frame", LinhaTopo)
+    ColunaDir.Size = UDim2.new(0, 235, 1, 0)
+    ColunaDir.Position = UDim2.new(0, 245, 0, 0) -- Distanciamento exato para a coluna da direita
+    ColunaDir.BackgroundTransparency = 1
+    local LayoutDir = Instance.new("UIListLayout", ColunaDir)
+    LayoutDir.SortOrder = Enum.SortOrder.LayoutOrder
+    LayoutDir.Padding = UDim.new(0, 10)
+
+    -- 2. LINHA INFERIOR (Vai conter o Seletor e os Saves alinhados lado a lado)
+    local LinhaBase = Instance.new("Frame", paginaPai)
+    LinhaBase.Name = "Fazenda_LinhaBase"
+    LinhaBase.Size = UDim2.new(0, 480, 0, 170)
+    LinhaBase.BackgroundTransparency = 1
+    LinhaBase.LayoutOrder = Componentes:GetInnerOrder()
+    local LayoutBase = Instance.new("UIListLayout", LinhaBase)
+    LayoutBase.FillDirection = Enum.FillDirection.Horizontal
+    LayoutBase.SortOrder = Enum.SortOrder.LayoutOrder
+    LayoutBase.Padding = UDim.new(0, 10)
+
+    -- ================= COLUNA ESQUERDA: MOTOR E CONFIG =================
+    -- O '235' força os cartões a ficarem exatamente do tamanho da coluna
+    local cMotor, zMotor = Componentes:CriarCard("⚙️ FARM CONTROLS", ColunaEsq, nil, 235)
+    Componentes:CriarToggleLargo("Ativar Auto-Farming", cMotor, State, "AutoFarmingCrops", zMotor, function(v) 
         if Bot.Modules.Farmer then Bot.Modules.Farmer:AlternarAutoFazenda(v) end 
     end)
-    
-    local DropdownModo = Componentes:CriarDropdown("🔄 Rota Principal", cFarm, State.FarmSettings, "FarmMode", false, zFarm, false)
-    DropdownModo:Refresh({"Snake Farm", "Wait First Plot", "Nearest Plot", "Only Fully Growth Plot"})
-    
-    Componentes:CriarSubtitulo("Configurações do Solo:", cFarm, zFarm)
-    local rFarm1 = Componentes:CriarGridDupla(cFarm, zFarm)
-    Componentes:CriarCheckboxMetade("🚜 Arar Grama", rFarm1, State.FarmSettings, "PlowGrass", zFarm)
-    Componentes:CriarCheckboxMetade("🌱 Preencher Vazios", rFarm1, State.FarmSettings, "FillEmptySoils", zFarm)
-    
-    local rFarm2 = Componentes:CriarGridDupla(cFarm, zFarm)
-    Componentes:CriarCheckboxMetade("📍 Rota Dinâmica", rFarm2, State.FarmSettings, "SmartRouting", zFarm)
+    local rowFarmCheck = Componentes:CriarGridDupla(cMotor, zMotor)
+    Componentes:CriarCheckboxMetade("Plantar Sementes", rowFarmCheck, State.FarmSettings, "EnablePlanting", zMotor)
 
-    -- ================= BLOCO 2: MÉTODOS DE AÇÃO =================
-    local cAdv, zAdv = Componentes:CriarCard("ADVANCED METHODS", paginaPai)
+    local cCfg, zCfg = Componentes:CriarCard("⏱️ DELAYS E CONFIG", ColunaEsq, nil, 235)
+    local r1 = Componentes:CriarGridDupla(cCfg, zCfg)
+    Componentes:CriarInputMetade("Delay Foice:", r1, State.FarmSettings, "HarvestDelay", "0.3", zCfg)
+    Componentes:CriarInputMetade("Delay Plantio:", r1, State.FarmSettings, "PlantDelay", "0.2", zCfg)
     
-    local DropHarvMode = Componentes:CriarDropdown("🔪 Harvest Mode", cAdv, State.FarmSettings, "HarvestMethod", false, zAdv, false)
-    DropHarvMode:Refresh({"Foice-Auto", "Foice-Batch"})
+    local r2 = Componentes:CriarGridDupla(cCfg, zCfg)
+    Componentes:CriarInputMetade("Qtd Lote:", r2, State.FarmSettings, "BatchSize", "5", zCfg)
     
-    local DropPlanMode = Componentes:CriarDropdown("🌱 Plant Mode", cAdv, State.FarmSettings, "PlantMethod", false, zAdv, false)
-    DropPlanMode:Refresh({"Plant-All", "Plant-Batch"})
+    local frameFoice = Instance.new("Frame", r2)
+    frameFoice.Size = UDim2.new(0.5, -2.5, 1, 0)
+    frameFoice.BackgroundColor3 = Componentes.Theme.PanelBG
+    Instance.new("UICorner", frameFoice).CornerRadius = UDim.new(0, 4)
+    local lblF = Instance.new("TextLabel", frameFoice)
+    lblF.Size = UDim2.new(0.4, 0, 1, 0); lblF.Position = UDim2.new(0, 5, 0, 0)
+    lblF.BackgroundTransparency = 1; lblF.Text = "Foice:"
+    lblF.TextColor3 = Componentes.Theme.TextDimmed; lblF.Font = Enum.Font.SourceSansSemibold
+    lblF.TextSize = 13; lblF.TextXAlignment = Enum.TextXAlignment.Left
+    local inputF = Instance.new("TextBox", frameFoice)
+    inputF.Size = UDim2.new(0.6, 0, 0.8, 0); inputF.Position = UDim2.new(0.4, 0, 0.1, 0)
+    inputF.BackgroundColor3 = Componentes.Theme.InputBG; inputF.TextColor3 = Componentes.Theme.AccentBlue
+    inputF.Text = State.FarmSettings.SickleName or "sickleStone"
+    inputF.Font = Enum.Font.SourceSansBold; inputF.TextSize = 13
+    Instance.new("UICorner", inputF).CornerRadius = UDim.new(0, 4)
+    inputF.FocusLost:Connect(function() State.FarmSettings.SickleName = inputF.Text end)
 
-    -- ================= BLOCO 3: SEEDS =================
-    local cSeed, zSeed = Componentes:CriarCard("SEEDS", paginaPai)
+
+    -- ================= COLUNA DIREITA: SEMENTES =================
+    local cSeed, zSeed = Componentes:CriarCard("🌱 GESTÃO DE SEMENTES", ColunaDir, 280, 235)
     
-    local DropdownSementes = Componentes:CriarDropdown("🎒 Permitidas", cSeed, State, "SementeSelecionada", true, zSeed, true)
-    local PriorizeDropdown = Componentes:CriarDropdown("🌍 Prioridade", cSeed, State.FarmSettings, "PrioritizePlant", false, zSeed, true)
+    local priorityDrop = Componentes:CriarDropdown("Prioridade", cSeed, State.FarmSettings, "PrioritySeed", false, zSeed + 10, true)
     
-    Componentes:CriarBotaoEstilizado("🔄 Sincronizar", cSeed, zSeed, function()
-        if Bot.Modules.Manager then 
-            pcall(function()
-                DropdownSementes:Refresh(Bot.Modules.Manager:GetInventoryTools("Seed"))
-                PriorizeDropdown:Refresh(Bot.Modules.Manager:GetAllSeedsInGame())
+    Componentes:CriarSubtitulo("Sementes Permitidas:", cSeed, zSeed)
+    
+    local scrollSeeds = Instance.new("ScrollingFrame", cSeed)
+    scrollSeeds.Name = "MultiSelectSeeds"
+    scrollSeeds.Size = UDim2.new(0.95, 0, 0, 140) 
+    scrollSeeds.BackgroundTransparency = 1
+    scrollSeeds.ScrollBarThickness = 4
+    scrollSeeds.LayoutOrder = Componentes:GetInnerOrder()
+    
+    local listLayout = Instance.new("UIListLayout", scrollSeeds)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Padding = UDim.new(0, 4)
+
+    local function AtualizarListasDeSementes()
+        if not Bot.Modules.Manager then return end
+        local invSeeds = Bot.Modules.Manager:GetInventorySeedsWithQuantity()
+        
+        local dropList = {"None"}
+        for seedType, _ in pairs(invSeeds) do table.insert(dropList, seedType) end
+        if priorityDrop then priorityDrop:Refresh(dropList) end
+
+        for _, child in ipairs(scrollSeeds:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        
+        local ySize = 0
+        for seedType, data in pairs(invSeeds) do
+            local btn = Instance.new("TextButton", scrollSeeds)
+            btn.Size = UDim2.new(1, -8, 0, 26) 
+            local isPermitted = State.FarmSettings.PermittedSeeds[seedType]
+            
+            btn.BackgroundColor3 = isPermitted and Componentes.Theme.ToggleOn or Componentes.Theme.ButtonBG
+            btn.Text = "   " .. (isPermitted and "[ V ] " or "[   ] ") .. string.format("%s (%d)", seedType, data.amount)
+            btn.TextColor3 = isPermitted and Componentes.Theme.TextWhite or Componentes.Theme.TextDimmed
+            btn.Font = Enum.Font.SourceSansSemibold
+            btn.TextSize = 13
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+            
+            btn.MouseButton1Click:Connect(function()
+                State.FarmSettings.PermittedSeeds[seedType] = not State.FarmSettings.PermittedSeeds[seedType]
+                local nv = State.FarmSettings.PermittedSeeds[seedType]
+                btn.BackgroundColor3 = nv and Componentes.Theme.ToggleOn or Componentes.Theme.ButtonBG
+                btn.Text = "   " .. (nv and "[ V ] " or "[   ] ") .. string.format("%s (%d)", seedType, data.amount)
+                btn.TextColor3 = nv and Componentes.Theme.TextWhite or Componentes.Theme.TextDimmed
             end)
+            ySize = ySize + 30 
+        end
+        scrollSeeds.CanvasSize = UDim2.new(0, 0, 0, ySize)
+    end
+
+    Componentes:CriarBotaoEstilizado("🔄 Sincronizar Mochila", cSeed, zSeed, AtualizarListasDeSementes)
+
+
+    -- ================= LINHA BASE: SELETOR E SAVES =================
+    local cSelVerde, zSelVerde = Componentes:CriarCard("📐 SELETOR (VERDE)", LinhaBase, 160, 235)
+    Componentes:CriarBotaoEstilizado("👁️ Spawn Selector", cSelVerde, zSelVerde, function()
+        if State.ScannerFazenda and type(State.ScannerFazenda.CriarSeletorFrontal) == "function" then
+            State.ScannerFazenda:CriarSeletorFrontal()
         end
     end)
+    Componentes:CriarControlesEspaciais(cSelVerde, zSelVerde, "ScannerFazenda")
 
-    -- ================= BLOCO 4: CONFIG, DELAY & VISUALS =================
-    local cDelay, zDelay = Componentes:CriarCard("CONFIG & DELAY", paginaPai)
-    
-    Componentes:CriarSubtitulo("Action Delays:", cDelay, zDelay)
-    local rDelay1 = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarInputMetade("⏱️ Harvest:", rDelay1, State.FarmSettings, "HarvestDelay", 0.1, zDelay)
-    Componentes:CriarInputMetade("⏱️ Plant:", rDelay1, State.FarmSettings, "PlantDelay", 0.05, zDelay)
-    
-    Componentes:CriarSubtitulo("Batch Size (Lotes):", cDelay, zDelay)
-    local rBatch = Componentes:CriarGridDupla(cDelay, zDelay)
-    local inpHarv = Componentes:CriarInputMetade("📦 Colher:", rBatch, State.FarmSettings, "HarvestBatch", 5, zDelay)
-    local inpPlan = Componentes:CriarInputMetade("📦 Plantar:", rBatch, State.FarmSettings, "PlantBatch", 5, zDelay)
-    
-    task.spawn(function()
-        while task.wait(0.2) do
-            if State.FarmSettings.HarvestMethod == "Foice-Auto" then
-                inpHarv.TextEditable = false; inpHarv.BackgroundColor3 = Color3.fromRGB(30, 30, 30); inpHarv.TextColor3 = Color3.fromRGB(100, 100, 100)
-            else
-                inpHarv.TextEditable = true; inpHarv.BackgroundColor3 = Componentes.Theme.InputBG; inpHarv.TextColor3 = Componentes.Theme.AccentBlue
-            end
 
-            if State.FarmSettings.PlantMethod == "Plant-All" then
-                inpPlan.TextEditable = false; inpPlan.BackgroundColor3 = Color3.fromRGB(30, 30, 30); inpPlan.TextColor3 = Color3.fromRGB(100, 100, 100)
-            else
-                inpPlan.TextEditable = true; inpPlan.BackgroundColor3 = Componentes.Theme.InputBG; inpPlan.TextColor3 = Componentes.Theme.AccentBlue
-            end
-        end
-    end)
+    local cSavVerde, zSavVerde = Componentes:CriarCard("💾 SAVES (FAZENDA)", LinhaBase, 160, 235)
     
-    Componentes:CriarSubtitulo("Movement & Performance:", cDelay, zDelay)
-    local rDelay2 = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarCheckboxMetade("✈️ Tween", rDelay2, State.FarmSettings, "TweenToTarget", zDelay)
-    Componentes:CriarInputMetade("💨 Speed:", rDelay2, State.FarmSettings, "TweenSpeed", 30, zDelay)
+    local rSaveNomeF = Instance.new("Frame", cSavVerde)
+    rSaveNomeF.Size = UDim2.new(0.95, 0, 0, 28)
+    rSaveNomeF.BackgroundTransparency = 1
+    rSaveNomeF.ZIndex = zSavVerde; rSaveNomeF.LayoutOrder = Componentes:GetInnerOrder()
     
-    local rDelay3 = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarCheckboxMetade("Hide Numbers", rDelay3, State.ScannerFazenda, "HideNumbers", zDelay, function()
-        if State.ScannerFazenda and type(State.ScannerFazenda.EscanearArea) == "function" then State.ScannerFazenda:EscanearArea() end
-    end)
+    local inputPlotFarm = Instance.new("TextBox", rSaveNomeF)
+    inputPlotFarm.Size = UDim2.new(0.60, 0, 1, 0)
+    inputPlotFarm.BackgroundColor3 = Componentes.Theme.InputBG
+    inputPlotFarm.TextColor3 = Componentes.Theme.AccentBlue
+    inputPlotFarm.PlaceholderText = " Nome Plot..."
+    inputPlotFarm.Font = Enum.Font.SourceSansBold
+    inputPlotFarm.TextSize = 13; inputPlotFarm.ZIndex = zSavVerde + 1
+    Instance.new("UICorner", inputPlotFarm).CornerRadius = UDim.new(0, 4)
+    
+    local btnSavePlotFarm = Instance.new("TextButton", rSaveNomeF)
+    btnSavePlotFarm.Size = UDim2.new(0.35, 0, 1, 0); btnSavePlotFarm.Position = UDim2.new(0.65, 0, 0, 0)
+    btnSavePlotFarm.BackgroundColor3 = Color3.fromRGB(0, 160, 220)
+    btnSavePlotFarm.Text = "Salvar"
+    btnSavePlotFarm.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnSavePlotFarm.Font = Enum.Font.SourceSansBold; btnSavePlotFarm.TextSize = 13
+    btnSavePlotFarm.ZIndex = zSavVerde + 1
+    Instance.new("UICorner", btnSavePlotFarm).CornerRadius = UDim.new(0, 4)
 
-    -- Visual Settings acoplado
-    Componentes:CriarSubtitulo("Visual Settings:", cDelay, zDelay)
-    local rVis1F = Componentes:CriarGridDupla(cDelay, zDelay)
-    Componentes:CriarCheckboxMetade("Esconder Cubo", rVis1F, State.ScannerFazenda, "EsconderSeletor", zDelay, function()
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
-    Componentes:CriarCheckboxMetade("Aplicar Outline", rVis1F, State.ScannerFazenda, "MostrarOutline", zDelay, function()
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
-    
-    local rVis2F = Componentes:CriarGridDupla(cDelay, zDelay)
-    local inpTranspF = Componentes:CriarInputMetade("Transparência:", rVis2F, State.ScannerFazenda, "Transparencia", 0.7, zDelay)
-    inpTranspF.FocusLost:Connect(function()
-        task.wait(0.05) -- Aguarda o componente interno salvar o valor
-        if State.ScannerFazenda then State.ScannerFazenda:AtualizarVisuais() end
-    end)
-    
-    -- ================= BLOCO 5: SELECTOR & SAVES =================
-    local cSave, zSave = Componentes:CriarCard("SELECTOR & SAVES", paginaPai, nil, 480)
-    
-    Componentes:CriarBotaoEstilizado("👁️ Spawn Selector", cSave, zSave, function() 
-        if State.ScannerFazenda and type(State.ScannerFazenda.CriarSeletorFrontal) == "function" then State.ScannerFazenda:CriarSeletorFrontal() end 
-    end)
-    
-    Componentes:CriarControlesEspaciais(cSave, zSave, "ScannerFazenda")
+    local plotDropdownFarm = Componentes:CriarDropdown("Selecionar Save", cSavVerde, State.FarmSettings, "CurrentSaveName", false, zSavVerde + 10, false)
 
-    Componentes:CriarSubtitulo("Area Management:", cSave, zSave)
-    local rSaveNome = Instance.new("Frame", cSave)
-    rSaveNome.Name = "Row_SavePlotName"
-    rSaveNome.Size = UDim2.new(0.95, 0, 0, 32); rSaveNome.BackgroundTransparency = 1
-    rSaveNome.ZIndex = zSave + 2; rSaveNome.LayoutOrder = Componentes:GetInnerOrder()
-    
-    local inputPlotFazenda = Componentes:CriarInputLargo("Plot:", rSaveNome, zSave)
-    
-    local btnSavePlotFazenda = Instance.new("TextButton", rSaveNome)
-    btnSavePlotFazenda.Name = "TriggerSavePlot"
-    btnSavePlotFazenda.Size = UDim2.new(0.35, 0, 1, 0); btnSavePlotFazenda.Position = UDim2.new(0.65, 5, 0, 0)
-    btnSavePlotFazenda.BackgroundColor3 = Color3.fromRGB(0, 160, 220); btnSavePlotFazenda.Text = "💾 Save"
-    btnSavePlotFazenda.TextColor3 = Color3.fromRGB(255, 255, 255); btnSavePlotFazenda.Font = Enum.Font.SourceSansBold
-    btnSavePlotFazenda.TextSize = 13; btnSavePlotFazenda.ZIndex = zSave + 3
-    Instance.new("UICorner", btnSavePlotFazenda).CornerRadius = UDim.new(0, 4)
-
-    local plotDropdownFazenda = Componentes:CriarDropdown("Select Save", cSave, State.FarmSettings, "CurrentSaveName", false, zSave, false)
-
-    local function AtualizarListaSavesFazenda()
-        if Bot.Modules.PlotManager and plotDropdownFazenda then
+    local function AtualizarListaSavesFarm()
+        if Bot.Modules.PlotManager and plotDropdownFarm then
             pcall(function()
                 local plots = Bot.Modules.PlotManager:ObterTodos()
                 local lista = {}
-                for nome, _ in pairs(plots) do if nome:sub(1, 8) == "Farming_" then table.insert(lista, nome:sub(9)) end end
-                plotDropdownFazenda:Refresh(lista)
+                for nome, _ in pairs(plots) do if nome:sub(1, 5) == "Farm_" then table.insert(lista, nome:sub(6)) end end
+                plotDropdownFarm:Refresh(lista)
             end)
         end
     end
 
-    btnSavePlotFazenda.MouseButton1Click:Connect(function()
+    btnSavePlotFarm.MouseButton1Click:Connect(function()
         local cubo = State.ScannerFazenda and State.ScannerFazenda.AncoraPart
-        if inputPlotFazenda.Text ~= "" and cubo then
-            Bot.Modules.PlotManager:SalvarPlot("Farming_" .. inputPlotFazenda.Text, cubo.Position, cubo.Size)
-            AtualizarListaSavesFazenda(); inputPlotFazenda.Text = ""
+        if inputPlotFarm.Text ~= "" and cubo then
+            Bot.Modules.PlotManager:SalvarPlot("Farm_" .. inputPlotFarm.Text, cubo.Position, cubo.Size)
+            AtualizarListaSavesFarm(); inputPlotFarm.Text = ""
         end
     end)
 
-    local rAcoesF = Componentes:CriarGridTripla(cSave, zSave)
-    Componentes:CriarBotaoPequeno("Load", Color3.fromRGB(40, 150, 80), rAcoesF, zSave, function()
+    local rAcoesF = Componentes:CriarGridTripla(cSavVerde, zSavVerde)
+    Componentes:CriarBotaoPequeno("Load", Color3.fromRGB(40, 150, 80), rAcoesF, zSavVerde, function()
         local sn = State.FarmSettings.CurrentSaveName
         if sn and sn ~= "None" and Bot.Modules.PlotManager then
-            local p = Bot.Modules.PlotManager:ObterTodos()["Farming_" .. sn]
+            local p = Bot.Modules.PlotManager:ObterTodos()["Farm_" .. sn]
             if p and State.ScannerFazenda then State.ScannerFazenda:CarregarPlot(Vector3.new(p.PosX, p.PosY, p.PosZ), Vector3.new(p.SizeX, p.SizeY, p.SizeZ)) end
         end
     end)
-    Componentes:CriarBotaoPequeno("Rewrite", Color3.fromRGB(200, 120, 20), rAcoesF, zSave, function()
+    Componentes:CriarBotaoPequeno("Rewrite", Color3.fromRGB(200, 120, 20), rAcoesF, zSavVerde, function()
         local sn = State.FarmSettings.CurrentSaveName; local cubo = State.ScannerFazenda and State.ScannerFazenda.AncoraPart
-        if sn and sn ~= "None" and cubo then Bot.Modules.PlotManager:SalvarPlot("Farming_" .. sn, cubo.Position, cubo.Size) end
+        if sn and sn ~= "None" and cubo then Bot.Modules.PlotManager:SalvarPlot("Farm_" .. sn, cubo.Position, cubo.Size) end
     end)
-    Componentes:CriarBotaoPequeno("Delete", Color3.fromRGB(200, 50, 50), rAcoesF, zSave, function()
+    Componentes:CriarBotaoPequeno("Delete", Color3.fromRGB(200, 50, 50), rAcoesF, zSavVerde, function()
         local sn = State.FarmSettings.CurrentSaveName
         if sn and sn ~= "None" then
-            Bot.Modules.PlotManager:DeletarPlot("Farming_" .. sn); State.FarmSettings.CurrentSaveName = "None"
-            AtualizarListaSavesFazenda()
+            Bot.Modules.PlotManager:DeletarPlot("Farm_" .. sn); State.FarmSettings.CurrentSaveName = "None"
+            AtualizarListaSavesFarm()
         end
     end)
     
-    local rSave2F = Componentes:CriarGridDupla(cSave, zSave)
-    Componentes:CriarCheckboxMetade("🚀 Auto-Load", rSave2F, State.FarmSettings, "AutoUseSelectedSave", zSave)
+    local rSave2F = Componentes:CriarGridDupla(cSavVerde, zSavVerde)
+    Componentes:CriarCheckboxMetade("Auto-Load", rSave2F, State.FarmSettings, "AutoUseSelectedSave", zSavVerde)
 
     task.spawn(function()
-        task.wait(1.5); pcall(function() AtualizarListaSavesFazenda() end)
-        if Bot.Modules.Manager then
-            pcall(function()
-                DropdownSementes:Refresh(Bot.Modules.Manager:GetInventoryTools("Seed"))
-                PriorizeDropdown:Refresh(Bot.Modules.Manager:GetAllSeedsInGame())
-            end)
-        end
+        task.wait(1)
+        pcall(AtualizarListaSavesFarm)
+        pcall(AtualizarListasDeSementes)
     end)
 end
 
